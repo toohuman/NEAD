@@ -10,9 +10,9 @@ More difficult, since dt is 0.05 (not 0.01), and only 200 timesteps
 
 import logging
 import math
-import gym
-from gym import spaces
-from gym.utils import seeding
+import gymnasium as gym
+from gymnasium import spaces
+from gymnasium.utils import seeding
 import numpy as np
 
 logger = logging.getLogger(__name__)
