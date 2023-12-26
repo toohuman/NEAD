@@ -12,10 +12,6 @@ FPS = 60
 
 SCALE = 30.0
 
-ANT_POLY = [
-
-]
-
 TRACK_TRAIL = 'all' # 'all', 'fade', 'none'
 FADE_DURATION = 15 # seconds
 
@@ -28,14 +24,6 @@ ant_trail = []
 
 target_pos = tuple()
 target_trail = []
-
-target_trail = [
-    (30, 30),
-    (31, 31),
-    (31, 32),
-    (31, 33),
-    (32, 34),
-]
 
 def track_trail(pos: tuple, prev_pos: list):
     trail = []
@@ -108,6 +96,14 @@ while running:
                 ant_dim.y
             )
 
+    if len(target_trail) == 0:
+        # Load target data
+        target_trail = [
+            vec2d(200, 200),
+            vec2d(201, 200),
+            vec2d(202, 200)
+        ]
+
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -130,13 +126,18 @@ while running:
     display.fill((150, 150, 170))
     
     # circular border
-    pygame.draw.circle(display, (200, 200, 200), (WIDTH/2.0, HEIGHT/2.0), min(WIDTH, HEIGHT)/2.0 - min(WIDTH, HEIGHT) * BOUNDARY_SCALE)
+    ant_arena = (
+        (WIDTH/2.0, HEIGHT/2.0),
+        min(WIDTH, HEIGHT)/2.0 - min(WIDTH, HEIGHT) * BOUNDARY_SCALE
+    )
+    print(ant_arena)
+    pygame.draw.circle(display, (200, 200, 200), ant_arena[0], ant_arena[1])
 
     # projected trail
     for pos in target_trail:
         # pygame.Rect()
-        pygame.draw.rect(display, (180, 180, 180), (*pos, 5, 5))
-    pygame.draw.rect(display, (0, 0, 0), (*target_trail[-1], 5, 5))    
+        pygame.draw.rect(display, (180, 180, 180), (*pos, ant_dim.x, ant_dim.y))
+    pygame.draw.rect(display, (0, 0, 0), (*target_trail[-1], ant_dim.x, ant_dim.y))    
 
     # ant trail
     for pos in ant_trail:
