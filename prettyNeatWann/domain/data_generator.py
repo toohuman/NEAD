@@ -5,7 +5,7 @@ import pandas as pd
 import os
 
 
-def load_input_files(source_dir):
+def load_combined_files(source_dir):
     input_files = []
     data = []
 
@@ -26,10 +26,10 @@ def find_valid_trail(data, num_trails, trail_length):
 
     for i in range(num_trails):
         start = np.random.randint(0, len(data[0]) - trail_length)
-        ant_index = np.random.randint(0, len(data.T)/2)
+        ant_index = np.random.randint(0, len(data.columns.levels[0]))
         not_null = False
         while not not_null:
-            ant_index = np.random.randint(0, len(data.T)/2)
+            ant_index = np.random.randint(0, len(data.columns.levels[0]))
             if np.isnan(np.array(data[ant_index][start:start + trail_length])).any():
                 continue
             else:
@@ -51,7 +51,7 @@ def find_bounding_box(data):
 
     return min_x, min_y, max_x, max_y
 
-def calculate_circle(min_x, max_x, min_y, max_y):
+def calculate_circle(min_x, min_y, max_x, max_y):
     """
     Calculate the circle that fits perfectly within a bounding box.
 
@@ -96,21 +96,23 @@ def circle_transformation(circle_a, circle_b):
 
     return (dx, dy), scale
 
-def main(args):
-    with lzma.open(args.input_file, 'r') as file:
-        input_data = pickle.load(file)
 
-    
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=('Train policy on OpenAI Gym environment '
-                                                'using pepg, ses, openes, ga, cma'))
-    parser.add_argument('-i', '--input_file', type=str, help='Input data file of ant dynamics [numpy array].', default='../data/2023_2/KA050_10cm_5h_20230614_1h-2h.pkl.xz')
-    # parser.add_argument('-o', '--output_dir', type=str, default="../data", help='num episodes per trial')
-    # parser.add_argument('-s', '--seed_start', type=int, default=111, help='initial seed')
-    # parser.add_argument('--sigma_init', type=float, default=0.10, help='sigma_init')
-    # parser.add_argument('--sigma_decay', type=float, default=0.999, help='sigma_decay')
 
-    args = parser.parse_args()
+# def main(args):
+#     with lzma.open(args.input_file, 'r') as file:
+#         input_data = pickle.load(file)
 
-    main(args)
+
+# if __name__ == "__main__":
+#     parser = argparse.ArgumentParser(description=('Train policy on OpenAI Gym environment '
+#                                                 'using pepg, ses, openes, ga, cma'))
+#     parser.add_argument('-i', '--input_file', type=str, help='Input data file of ant dynamics [numpy array].', default='../data/2023_2/KA050_10cm_5h_20230614_1h-2h.pkl.xz')
+#     # parser.add_argument('-o', '--output_dir', type=str, default="../data", help='num episodes per trial')
+#     # parser.add_argument('-s', '--seed_start', type=int, default=111, help='initial seed')
+#     # parser.add_argument('--sigma_init', type=float, default=0.10, help='sigma_init')
+#     # parser.add_argument('--sigma_decay', type=float, default=0.999, help='sigma_decay')
+
+#     args = parser.parse_args()
+
+#     main(args)

@@ -9,6 +9,8 @@ import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.utils import colorize, seeding
 
+from data_generator import *
+
 logger = logging.getLogger(__name__)
 
 FPS = 50
@@ -33,9 +35,17 @@ class AntArena(gym.Env):
 
     def __init__(self):
         self.seed()
-        self.vewer = None
+        self.viewer = None
+        self.state = None
+        self.noise = 0
 
         pygame.init()
+
+        # circular arena
+        self.ant_arena = (
+            (VIEWPORT_W/2.0, VIEWPORT_H/2.0),
+            min(VIEWPORT_W, VIEWPORT_H)/2.0 - min(VIEWPORT_W, VIEWPORT_H) * BOUNDARY_SCALE
+        )
         
         self.t = 0
         self.t_limit = 1000
@@ -48,7 +58,8 @@ class AntArena(gym.Env):
         self.target_pos = None
         self.target_trail = None
 
-        self.noise = 0
+        # Load the ant trail dataset
+        self._get_ant_trails()
 
         self.reset()
 
@@ -105,6 +116,16 @@ class AntArena(gym.Env):
 
         self.target_pos = tuple()
         self.target_trail = []
+
+    def _get_ant_trails(self):
+        self.ant_trail_data = load_combined_files("../../../data/2023_2/")
+        self.arena_bb = find_bounding_box(self.ant_trail_data)
+        origin_arena = calculate_circle(*self.arena_bb)
+
+        translation, scaling = circle_transformation(
+            origin_arena, self.ant_arena
+        )
+        print(f"Translation: {translation}, Scaling: {scaling}")
 
     def reset(self):
         self._destroy()
@@ -174,13 +195,7 @@ class AntArena(gym.Env):
         # draw
         env.display.fill((150, 150, 170))
         
-        # circular border
-        ant_arena = (
-            (VIEWPORT_W/2.0, VIEWPORT_H/2.0),
-            min(VIEWPORT_W, VIEWPORT_H)/2.0 - min(VIEWPORT_W, VIEWPORT_H) * BOUNDARY_SCALE
-        )
-        print(ant_arena)
-        pygame.draw.circle(env.display, (200, 200, 200), ant_arena[0], ant_arena[1])
+        pygame.draw.circle(env.display, (200, 200, 200), self.ant_arena[0], self.ant_arena[1])
 
         # projected trail
         for pos in env.target_trail:
@@ -201,7 +216,6 @@ class AntArena(gym.Env):
 if __name__ == "__main__":
 
     env = AntArena()
-    env.reset()
     steps = 0
     total_reward = 0
     a = np.array([0.0, 0.0])
