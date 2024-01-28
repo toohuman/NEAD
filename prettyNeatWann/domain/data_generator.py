@@ -5,7 +5,7 @@ import pandas as pd
 import os
 
 
-def load_combined_files(source_dir):
+def load_combined_files(source_dir, scale = None):
     input_files = []
     data = []
 
@@ -17,7 +17,10 @@ def load_combined_files(source_dir):
         with lzma.open(os.path.join(source_dir, input_file)) as file:
             data.append(pd.read_pickle(file))
 
-    return pd.concat(data, ignore_index=True)
+    if scale:
+        return pd.concat(data, ignore_index=True).iloc[::int(scale)]
+    else:
+        return pd.concat(data, ignore_index=True)
 
 def find_valid_trail(data, num_trails, trail_length):
     num_trails = 10_000
@@ -39,15 +42,14 @@ def find_valid_trail(data, num_trails, trail_length):
     return trails
 
 def find_bounding_box(data):
-    # Concatenating all x and y values into separate Series
-    all_x_values = pd.concat([data[col] for col in data.columns if col[1] == 'x'], ignore_index=True)
-    all_y_values = pd.concat([data[col] for col in data.columns if col[1] == 'y'], ignore_index=True)
-
+    # Separate all x and y values into slices
+    all_x_values = data[[col for col in data.columns if 'x' in col]]
+    all_y_values = data[[col for col in data.columns if 'y' in col]]
     # Calculating the minimum and maximum for x and y values efficiently
-    min_x = all_x_values.min()
-    max_x = all_x_values.max()
-    min_y = all_y_values.min()
-    max_y = all_y_values.max()
+    min_x = all_x_values.min(axis=None)
+    max_x = all_x_values.max(axis=None)
+    min_y = all_y_values.min(axis=None)
+    max_y = all_y_values.max(axis=None)
 
     return min_x, min_y, max_x, max_y
 
@@ -84,19 +86,37 @@ def circle_transformation(circle_a, circle_b):
     Returns:
     tuple: A tuple containing the translation vector (dx, dy) and the scaling factor.
     """
+    SF = 0.99
     (x_a, y_a), r_a = circle_a
     (x_b, y_b), r_b = circle_b
+
+    # Scaling factor
+    scale = r_b / r_a
+
+    x_a *= scale*SF
+    y_a *= scale*SF
 
     # Translation vector
     dx = x_b - x_a
     dy = y_b - y_a
 
-    # Scaling factor
-    scale = r_b / r_a
+    return (dx, dy), scale*SF
 
-    return (dx, dy), scale
+def apply_transform_scale(data, trans, scale):
+    data[[col for col in data.columns if 'x' in col]] = data[[col for col in data.columns if 'x' in col]].transform(
+        np.vectorize(lambda x : np.round((x * scale) + trans[0]))
+    )
+    data[[col for col in data.columns if 'y' in col]] = data[[col for col in data.columns if 'y' in col]].transform(
+        np.vectorize(lambda x : np.round((x * scale) + trans[1]))
+    )
 
+def euclidean_distances(data):
+    a = np.array(data)
+    b = a.reshape(a.shape[0], 1, a.shape[1])
+    distances = np.sqrt(np.einsum('ijk, ijk->ij', a-b, a-b))
+    np.fill_diagonal(distances, np.NaN)
 
+    return distances
 
 
 # def main(args):

@@ -12,8 +12,15 @@ from gymnasium.utils import colorize, seeding
 from data_generator import *
 
 logger = logging.getLogger(__name__)
+logger.setLevel('INFO')
 
-FPS = 50
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
+FPS = 60
 SCALE = 30.0   # affects how fast-paced the game is, forces should be adjusted as well
 
 INITIAL_RANDOM = 5
@@ -32,6 +39,8 @@ class AntArena(gym.Env):
         'render.modes': ['human', 'rgb_array'],
         'video.frames_per_second' : 50
     }
+
+    ant_trail_data = None
 
     def __init__(self):
         self.seed()
@@ -59,13 +68,57 @@ class AntArena(gym.Env):
         self.target_trail = None
 
         # Load the ant trail dataset
-        self._get_ant_trails()
+        if not AntArena.ant_trail_data:
+            self._get_ant_trails()
 
         self.reset()
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
+
+    def _get_ant_trails(self):
+        AntArena.ant_trail_data = load_combined_files(
+            "../../../data/2023_2/",
+            FPS / SCALE
+        )
+        data_len = len(AntArena.ant_trail_data)
+        logger.info(msg=f"Ant trail data loaded. Total records: {data_len}")
+        arena_bb = find_bounding_box(AntArena.ant_trail_data)
+        origin_arena = calculate_circle(*arena_bb)
+
+        translation, scaling = circle_transformation(
+            origin_arena, self.ant_arena
+        )
+        apply_transform_scale(AntArena.ant_trail_data, translation, scaling)
+        logger.info(msg=f"Translation: {translation}, Scaling: {scaling}")
+        logger.info(msg=f"Original: ({origin_arena[0][0] + translation[0]}, {origin_arena[0][1] + translation[1]}), Scaling: {origin_arena[1]*scaling}")
+        logger.info(msg=f"Simulated: {self.ant_arena[0]}, Scaling: {self.ant_arena[1]}")
+
+    def _select_target(self):
+        """
+        Select an ant trail as the target trail for the current trial.
+        At the moment, we will just select a single target trail, but we should
+        also provide positions of other ants within a given radius for feeding
+        into the ant's internal state.
+        """
+        num_trails = 1
+        trail_length = int(SCALE * 60)
+        s = np.zeros((num_trails, trail_length, 2), dtype=float)
+
+        for i in range(num_trails):
+            start = np.random.randint(len(AntArena.ant_trail_data) - trail_length)
+            pos_indices = list(np.random.permutation(len(AntArena.ant_trail_data.columns.levels[0])))
+            contains_null = True
+            while contains_null and len(pos_indices) > 0:
+                ant_index = pos_indices.pop()
+                if np.isnan(np.array(AntArena.ant_trail_data[ant_index][start:start + trail_length])).any():
+                    continue
+                else:
+                    s[i][0:trail_length] = AntArena.ant_trail_data[ant_index][start:start + trail_length]
+                    contains_null = False
+
+        return s[0][0], s[0], s[0][-1]
     
     def _track_trail(self, pos: tuple, prev_pos: list):
         trail = []
@@ -117,16 +170,6 @@ class AntArena(gym.Env):
         self.target_pos = tuple()
         self.target_trail = []
 
-    def _get_ant_trails(self):
-        self.ant_trail_data = load_combined_files("../../../data/2023_2/")
-        self.arena_bb = find_bounding_box(self.ant_trail_data)
-        origin_arena = calculate_circle(*self.arena_bb)
-
-        translation, scaling = circle_transformation(
-            origin_arena, self.ant_arena
-        )
-        print(f"Translation: {translation}, Scaling: {scaling}")
-
     def reset(self):
         self._destroy()
 
@@ -139,37 +182,7 @@ class AntArena(gym.Env):
 
         self.game_over = False
 
-        if self.ant is None:
-            self.ant = pygame.Rect(
-                random.uniform(VIEWPORT_W * BOUNDARY_SCALE, VIEWPORT_W - (VIEWPORT_W * BOUNDARY_SCALE)),
-                random.uniform(VIEWPORT_H * BOUNDARY_SCALE, VIEWPORT_H - (VIEWPORT_H * BOUNDARY_SCALE)),
-                self.ant_dim.x,
-                self.ant_dim.y
-            )
-            while not self._is_rectangle_in_circle(
-                self.ant,
-                (VIEWPORT_W/2.0, VIEWPORT_H/2.0),
-                min(VIEWPORT_W, VIEWPORT_H)/2.0 - min(VIEWPORT_W, VIEWPORT_H) * BOUNDARY_SCALE
-            ):
-                self.ant = pygame.Rect(
-                    random.uniform(VIEWPORT_W * BOUNDARY_SCALE, VIEWPORT_W - (VIEWPORT_W * BOUNDARY_SCALE)),
-                    random.uniform(VIEWPORT_H * BOUNDARY_SCALE, VIEWPORT_H - (VIEWPORT_H * BOUNDARY_SCALE)),
-                    self.ant_dim.x,
-                    self.ant_dim.y
-                )
-
-        if len(self.target_trail) == 0:
-            # Load target data
-            self.target_trail = [
-                vec2d(200, 200),
-                vec2d(201, 200),
-                vec2d(203, 200),
-                vec2d(205, 202),
-                vec2d(209, 202),
-                vec2d(215, 205),
-                vec2d(217, 207),
-                vec2d(220, 205)
-            ]
+        self.ant, self.target_trail, self.target_pos = self._select_target()
 
     def step(self):
 
@@ -188,6 +201,8 @@ class AntArena(gym.Env):
                     pass
                 if event.key == pygame.K_DOWN:
                     pass
+                if event.key == pygame.K_r:
+                    self.reset()
 
         self.clock.tick(FPS)
 
@@ -205,10 +220,10 @@ class AntArena(gym.Env):
 
         # ant trail
         for pos in env.ant_trail:
-            pygame.draw.rect(env.display, (150, 150, 255), pos)
+            pygame.draw.rect(env.display, (150, 150, 255), (*pos, env.ant_dim.x, env.ant_dim.y))
 
         # ant
-        pygame.draw.rect(env.display, (0, 0, 255), env.ant)
+        pygame.draw.rect(env.display, (0, 0, 255), (*env.ant, env.ant_dim.x, env.ant_dim.y))
 
         pygame.display.update()
 
