@@ -12,7 +12,7 @@ from gymnasium.utils import colorize, seeding
 from data_generator import *
 
 logger = logging.getLogger(__name__)
-logger.setLevel('INFO')
+logger.setLevel(logging.INFO)
 
 handler = logging.StreamHandler(sys.stdout)
 handler.setLevel(logging.DEBUG)
@@ -78,22 +78,11 @@ class AntArena(gym.Env):
         return [seed]
 
     def _get_ant_trails(self):
-        AntArena.ant_trail_data = load_combined_files(
+        AntArena.ant_trail_data = load_data(
             "../../../data/2023_2/",
-            FPS / SCALE
+            FPS / SCALE,
+            self.ant_arena
         )
-        data_len = len(AntArena.ant_trail_data)
-        logger.info(msg=f"Ant trail data loaded. Total records: {data_len}")
-        arena_bb = find_bounding_box(AntArena.ant_trail_data)
-        origin_arena = calculate_circle(*arena_bb)
-
-        translation, scaling = circle_transformation(
-            origin_arena, self.ant_arena
-        )
-        apply_transform_scale(AntArena.ant_trail_data, translation, scaling)
-        logger.info(msg=f"Translation: {translation}, Scaling: {scaling}")
-        logger.info(msg=f"Original: ({origin_arena[0][0] + translation[0]}, {origin_arena[0][1] + translation[1]}), Scaling: {origin_arena[1]*scaling}")
-        logger.info(msg=f"Simulated: {self.ant_arena[0]}, Scaling: {self.ant_arena[1]}")
 
     def _select_target(self):
         """

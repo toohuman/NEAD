@@ -1,45 +1,72 @@
 import argparse
+import logging
 import lzma, pickle
 import numpy as np
 import pandas as pd
-import os
+import os, sys
+
+logger = logging.getLogger(__name__)
+
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
+FILE_PREFIX = "KA050_10cm_5h_20230614"
+PP_FILE_PREFIX = "KA050_processed"
+OUTPUT_FILE = '_'.join([PP_FILE_PREFIX, *FILE_PREFIX.split('_')[1:]]) + '.pkl.xz'
+
+def load_data(source_dir, scale = None, arena_dim = None):
+    data = None
+    if os.path.exists(os.path.join(source_dir, OUTPUT_FILE)):
+        with lzma.open(os.path.join(source_dir, OUTPUT_FILE)) as file:
+            data = pd.read_pickle(file)
+            logger.info(msg=f"Processed data file found: {OUTPUT_FILE}")
+        return data.iloc[::int(scale)] if scale else data
+    else:
+        logger.info(msg=f"No processed file found. Looking for ")
+        return load_combined_files(source_dir, arena_dim, scale)
 
 
-def load_combined_files(source_dir, scale = None):
+def process_data(data, arena_dim):
+    data_len = len(data)
+    logger.info(msg=f"Ant trail data loaded. Total records: {data_len}")
+    arena_bb = find_bounding_box(data)
+    origin_arena = calculate_circle(*arena_bb)
+
+    translation, scale = circle_transformation(
+        origin_arena, arena_dim
+    )
+
+    logger.info(msg=f"Processing data now. This will take a while...")
+    apply_transform_scale(data, translation, scale)
+    logger.info(msg=f"Finished processing.")
+
+    logger.info(msg=f"Translation: {translation}, scale: {scale}")
+    logger.info(msg=f"Original: ({origin_arena[0][0] + translation[0]}, {origin_arena[0][1] + translation[1]}), scale: {origin_arena[1]*scale}")
+    logger.info(msg=f"Simulated: {arena_dim[0]}, scale: {arena_dim[1]}")
+
+    return data
+
+
+def load_combined_files(source_dir, arena_dim, scale = None):
     input_files = []
     data = []
 
     for file in os.listdir(source_dir):
-        if file.endswith('.pkl.xz'):
+        if FILE_PREFIX in file and file.endswith('.pkl.xz'):
             input_files.append(file)
 
     for input_file in input_files:
         with lzma.open(os.path.join(source_dir, input_file)) as file:
             data.append(pd.read_pickle(file))
 
-    if scale:
-        return pd.concat(data, ignore_index=True).iloc[::int(scale)]
-    else:
-        return pd.concat(data, ignore_index=True)
+    data = process_data(pd.concat(data, ignore_index=True), arena_dim)
+    data.to_pickle(os.path.join(source_dir, OUTPUT_FILE), compression='xz')
 
-def find_valid_trail(data, num_trails, trail_length):
-    num_trails = 10_000
-    trail_length = 60 * 60
-    trails = np.zeros((num_trails, trail_length, 2), dtype=float)
+    return data.iloc[::int(scale)] if scale else data
 
-    for i in range(num_trails):
-        start = np.random.randint(0, len(data[0]) - trail_length)
-        ant_index = np.random.randint(0, len(data.columns.levels[0]))
-        not_null = False
-        while not not_null:
-            ant_index = np.random.randint(0, len(data.columns.levels[0]))
-            if np.isnan(np.array(data[ant_index][start:start + trail_length])).any():
-                continue
-            else:
-                trails[i][0:trail_length] = data[ant_index][start:start + trail_length]
-                not_null = True
-    
-    return trails
 
 def find_bounding_box(data):
     # Separate all x and y values into slices
@@ -52,6 +79,7 @@ def find_bounding_box(data):
     max_y = all_y_values.max(axis=None)
 
     return min_x, min_y, max_x, max_y
+
 
 def calculate_circle(min_x, min_y, max_x, max_y):
     """
@@ -74,6 +102,7 @@ def calculate_circle(min_x, min_y, max_x, max_y):
     radius = min(max_x - min_x, max_y - min_y) / 2
 
     return ((x_centre, y_centre), radius)
+
 
 def circle_transformation(circle_a, circle_b):
     """
@@ -102,6 +131,7 @@ def circle_transformation(circle_a, circle_b):
 
     return (dx, dy), scale*SF
 
+
 def apply_transform_scale(data, trans, scale):
     data[[col for col in data.columns if 'x' in col]] = data[[col for col in data.columns if 'x' in col]].transform(
         np.vectorize(lambda x : np.round((x * scale) + trans[0]))
@@ -109,6 +139,7 @@ def apply_transform_scale(data, trans, scale):
     data[[col for col in data.columns if 'y' in col]] = data[[col for col in data.columns if 'y' in col]].transform(
         np.vectorize(lambda x : np.round((x * scale) + trans[1]))
     )
+
 
 def euclidean_distances(data):
     a = np.array(data)

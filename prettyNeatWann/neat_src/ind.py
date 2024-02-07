@@ -5,7 +5,7 @@ from .ann import getLayer, getNodeOrder
 
 class Ind():
   """Individual class: genes, network, and fitness
-  """ 
+  """
   def __init__(self, conn, node):
     """Intialize individual with given genes
     Args:
@@ -19,7 +19,7 @@ class Ind():
              [0,:] == Node Id
              [1,:] == Type (1=input, 2=output 3=hidden 4=bias)
              [2,:] == Activation function (as int)
-  
+
     Attributes:
       node    - (np_array) - node genes (see args)
       conn    - (np_array) - conn genes (see args)
@@ -28,9 +28,9 @@ class Ind():
       wMat    - (np_array) - weight matrix, one row and column for each node
                 [N X N]    - rows: connection from; cols: connection to
       wVec    - (np_array) - wMat as a flattened vector
-                [N**2 X 1]    
+                [N**2 X 1]
       aVec    - (np_array) - activation function of each node (as int)
-                [N X 1]    
+                [N X 1]
       nConn   - (int)      - number of connections
       fitness - (double)   - fitness averaged over all trials (higher better)
       X fitMax  - (double)   - best fitness over all trials (higher better)
@@ -93,7 +93,7 @@ class Ind():
         child  - (Ind)      - newly created individual
         innov  - (np_array) - updated innovation record
 
-    """ 
+    """
     if mate is not None:
       child = self.crossover(mate)
     else:
@@ -120,7 +120,7 @@ class Ind():
                    [1,:] == Source Node Id
                    [2,:] == Destination Node Id
                    [3,:] == Weight Value
-                   [4,:] == Enabled?             
+                   [4,:] == Enabled?
         parentB - (Ind) - Less fit parent
 
     Returns:
@@ -132,17 +132,17 @@ class Ind():
 
     # Inherit all nodes and connections from most fit parent
     child = Ind(parentA.conn, parentA.node)
-    
+
     # Identify matching connection genes in ParentA and ParentB
     aConn = np.copy(parentA.conn[0,:])
     bConn = np.copy(parentB.conn[0,:])
     matching, IA, IB = np.intersect1d(aConn,bConn,return_indices=True)
-    
+
     # Replace weights with parentB weights with some probability
     bProb = 0.5
     bGenes = np.random.rand(1,len(matching))<bProb
     child.conn[3,IA[bGenes[0]]] = parentB.conn[3,IB[bGenes[0]]]
-    
+
     return child
 
   def mutate(self,p,innov=None,gen=None):
@@ -152,12 +152,12 @@ class Ind():
       p        - (dict)     - algorithm hyperparameters (see p/hypkey.txt)
       child    - (Ind)      - individual to be mutated
         .conns - (np_array) - connection genes
-                 [5 X nUniqueGenes] 
+                 [5 X nUniqueGenes]
                  [0,:] == Innovation Number (unique Id)
                  [1,:] == Source Node Id
                  [2,:] == Destination Node Id
                  [3,:] == Weight Value
-                 [4,:] == Enabled?  
+                 [4,:] == Enabled?
         .nodes - (np_array) - node genes
                  [3 X nUniqueGenes]
                  [0,:] == Node Id
@@ -181,28 +181,28 @@ class Ind():
     connG = np.copy(self.conn)
     nodeG = np.copy(self.node)
 
-    
+
     # - Re-enable connections
     disabled  = np.where(connG[4,:] == 0)[0]
     reenabled = np.random.rand(1,len(disabled)) < p['prob_enable']
     connG[4,disabled] = reenabled
-         
+
     # - Weight mutation
     # [Canonical NEAT: 10% of weights are fully random...but seriously?]
     mutatedWeights = np.random.rand(1,nConn) < p['prob_mutConn'] # Choose weights to mutate
     weightChange = mutatedWeights * np.random.randn(1,nConn) * p['ann_mutSigma']
     connG[3,:] += weightChange[0]
-    
-    # Clamp weight strength [ Warning given for nan comparisons ]  
+
+    # Clamp weight strength [ Warning given for nan comparisons ]
     connG[3, (connG[3,:] >  p['ann_absWCap'])] =  p['ann_absWCap']
     connG[3, (connG[3,:] < -p['ann_absWCap'])] = -p['ann_absWCap']
-    
+
     if (np.random.rand() < p['prob_addNode']) and np.any(connG[4,:]==1):
       connG, nodeG, innov = self.mutAddNode(connG, nodeG, innov, gen, p)
-    
+
     if (np.random.rand() < p['prob_addConn']):
-      connG, innov = self.mutAddConn(connG, nodeG, innov, gen, p) 
-    
+      connG, innov = self.mutAddConn(connG, nodeG, innov, gen, p)
+
     child = Ind(connG, nodeG)
     child.birth = gen
 
@@ -213,12 +213,12 @@ class Ind():
 
     Args:
       connG    - (np_array) - connection genes
-                 [5 X nUniqueGenes] 
+                 [5 X nUniqueGenes]
                  [0,:] == Innovation Number (unique Id)
                  [1,:] == Source Node Id
                  [2,:] == Destination Node Id
                  [3,:] == Weight Value
-                 [4,:] == Enabled?  
+                 [4,:] == Enabled?
       nodeG    - (np_array) - node genes
                  [3 X nUniqueGenes]
                  [0,:] == Node Id
@@ -242,21 +242,21 @@ class Ind():
     """
     if innov is None:
       newNodeId = int(max(nodeG[0,:]+1))
-      newConnId = connG[0,-1]+1    
+      newConnId = connG[0,-1]+1
     else:
       newNodeId = int(max(innov[2,:])+1) # next node id is a running counter
-      newConnId = innov[0,-1]+1 
-       
+      newConnId = innov[0,-1]+1
+
     # Choose connection to split
     connActive = np.where(connG[4,:] == 1)[0]
     if len(connActive) < 1:
       return connG, nodeG, innov # No active connections, nothing to split
     connSplit  = connActive[np.random.randint(len(connActive))]
-    
+
     # Create new node
     newActivation = p['ann_actRange'][np.random.randint(len(p['ann_actRange']))]
     newNode = np.array([[newNodeId, 3, newActivation]]).T
-    
+
     # Add connections to and from new node
     # -- Effort is taken to minimize disruption from node addition:
     # The 'weight to' the node is set to 1, the 'weight from' is set to the
@@ -266,28 +266,28 @@ class Ind():
     connTo[0] = newConnId
     connTo[2] = newNodeId
     connTo[3] = 1 # weight set to 1
-      
+
     connFrom    = connG[:,connSplit].copy()
     connFrom[0] = newConnId + 1
     connFrom[1] = newNodeId
-    connFrom[3] = connG[3,connSplit] # weight set to previous weight value   
-        
+    connFrom[3] = connG[3,connSplit] # weight set to previous weight value
+
     newConns = np.vstack((connTo,connFrom)).T
-        
+
     # Disable original connection
     connG[4,connSplit] = 0
-        
+
     # Record innovations
     if innov is not None:
       newInnov = np.empty((5,2))
-      newInnov[:,0] = np.hstack((connTo[0:3], newNodeId, gen))   
-      newInnov[:,1] = np.hstack((connFrom[0:3], -1, gen)) 
+      newInnov[:,0] = np.hstack((connTo[0:3], newNodeId, gen))
+      newInnov[:,1] = np.hstack((connFrom[0:3], -1, gen))
       innov = np.hstack((innov,newInnov))
-      
+
     # Add new structures to genome
     nodeG = np.hstack((nodeG,newNode))
     connG = np.hstack((connG,newConns))
-    
+
     return connG, nodeG, innov
 
   def mutAddConn(self, connG, nodeG, innov, gen, p):
@@ -301,12 +301,12 @@ class Ind():
 
     Args:
       connG    - (np_array) - connection genes
-                 [5 X nUniqueGenes] 
+                 [5 X nUniqueGenes]
                  [0,:] == Innovation Number (unique Id)
                  [1,:] == Source Node Id
                  [2,:] == Destination Node Id
                  [3,:] == Weight Value
-                 [4,:] == Enabled?  
+                 [4,:] == Enabled?
       nodeG    - (np_array) - node genes
                  [3 X nUniqueGenes]
                  [0,:] == Node Id
@@ -331,7 +331,7 @@ class Ind():
     if innov is None:
       newConnId = connG[0,-1]+1
     else:
-      newConnId = innov[0,-1]+1 
+      newConnId = innov[0,-1]+1
 
     nIns = len(nodeG[0,nodeG[1,:] == 1]) + len(nodeG[0,nodeG[1,:] == 4])
     nOuts = len(nodeG[0,nodeG[1,:] == 2])
@@ -351,18 +351,18 @@ class Ind():
     for src in sources:
       srcLayer = nodeKey[src,1]
       dest = np.where(nodeKey[:,1] > srcLayer)[0]
-      
+
       # Finding already existing connections:
       #   ) take all connection genes with this source (connG[1,:])
       #   ) take the destination of those genes (connG[2,:])
-      #   ) convert to nodeKey index (Gotta be a better numpy way...)   
+      #   ) convert to nodeKey index (Gotta be a better numpy way...)
       srcIndx = np.where(connG[1,:]==nodeKey[src,0])[0]
       exist = connG[2,srcIndx]
       existKey = []
       for iExist in exist:
         existKey.append(np.where(nodeKey[:,0]==iExist)[0])
       dest = np.setdiff1d(dest,existKey) # Remove existing connections
-      
+
       # Add a random valid connection
       np.random.shuffle(dest)
       if len(dest)>0:  # (there is a valid connection)
