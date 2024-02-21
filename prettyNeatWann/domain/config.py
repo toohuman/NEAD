@@ -171,6 +171,34 @@ bullet_ant = Game(env_name='AntBulletEnv-v0',
 games['bullet_ant'] = bullet_ant
 
 
+# -- Slime Volleyball ---------------------------------------------------- -- #
+
+slime_volley = Game(env_name='SlimeVolley-v0',
+  actionSelect='all', # all, soft, hard
+  input_size=12,
+  output_size=3,
+  time_factor=0,
+  layers=[36, 3],
+  i_act=np.full(12,1),
+  h_act=[1,2,3,4,5,6,7,8,9,10],
+  o_act=np.full(3,1),
+  weightCap = 10.0,
+  noise_bias=0.0,
+  output_noise=[False, False, False],
+  max_episode_length = 3000,
+  in_out_labels = [
+      # Inputs (self observations)
+      'x','y','x_dot','y_dot',
+      # Inputs (ball observations)
+      'ball_x', 'ball_y','ball_x_dot', 'ball_y_dot',
+      # Inputs (other agent observations)
+      'other_x','other_y','other_x_dot','other_y_dot',
+      # Outputs
+      'forward', 'backward', 'jump']
+)
+games['slimevolley'] = slime_volley
+
+
 # -- Ant Dynamics -------------------------------------------------------- -- #
 
 ant_dynamics = Game(env_name='AntDynamics-v0',

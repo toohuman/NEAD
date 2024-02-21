@@ -28,7 +28,7 @@ class WannGymTask(GymTask):
     """Set single shared weight of network
   
     Args:
-      wVec    - (np_array) - weight matrix as a flattened vector
+      wVec    - (np_array) - weight matrix as a flattened vector\\\\\
                 [N**2 X 1]
       wVal    - (float)    - value to assign to all weights
   

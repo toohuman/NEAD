@@ -19,6 +19,14 @@ def make_env(env_name, seed=-1, render_mode=False):
     print("cartpole_swingup_started")
     from custom_envs.cartpole_swingup import CartPoleSwingUpEnv
     env = CartPoleSwingUpEnv()
+  elif (env_name.startswith("SlimeVolley")):
+    print("SlimeVolley")
+    from custom_envs.slimevolley import SlimeVolleyEnv
+    env = SlimeVolleyEnv()
+  elif (env_name.startswith("AntDynamics")):
+    print("AntDynamics")
+    from custom_envs.ant_dynamics import AntDynamicsEnv
+    env = AntDynamicsEnv()
   elif (env_name.startswith("MNIST")):
     print("MNIST256_started")
     from custom_envs.classify_gym import ClassifyEnv, mnist_256, mnist_256_test
