@@ -19,15 +19,19 @@ formatter = logging.Formatter('%(asctime)s [%(levelname)s] In %(pathname)s:%(lin
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-FPS = 60
-SCALE = 30.0   # affects how fast-paced the game is, forces should be adjusted as well
-DT = 1.0/SCALE
+VIDEO_FPS = 60     # Source data FPS (60Hz)
+SIM_FPS = 30.0    # Simulation environment FPS
 
 INITIAL_RANDOM = 5
 
 SCREEN_W = 900
 SCREEN_H = 900
 BOUNDARY_SCALE = 0.02
+
+# Global parameters for agent control
+TIMESTEP = 1./SIM_FPS       # Not sure if this will be necessary, given the fixed FPS?
+AGENT_SPEED = 10*1.75       # Taken from slimevolley, will need to adjust based on feeling
+TURN_RATE = 12 * 2 * math.pi / 360
 
 TRACK_TRAIL = 'all' # 'all', 'fade', 'none'
 FADE_DURATION = 15 # seconds
@@ -38,33 +42,83 @@ class Ant():
     """Agent class for the ant"""
     def __init__(self, pos):
         self.x, self.y = pos
-        self.v = 0.0
+        self.speed = 0.0
+        self.theta = 0.0
+        self.theta_dot = 0.0
         self.trail = []
-    
-    def _move(self):
-        self.x += self.vx * DT
-        self.y += self.vy * DT
 
+        # Detection scalar:
+        # num of ants in cone, or distance to closes ant
+        self.V_f = 0.0
+        self.V_r = 0.0
+        self.V_b = 0.0
+        self.V_l = 0.0
+
+    def _detect_vision(self):
+        self.V_f = 0.0
+        self.V_r = 0.0
+        self.V_b = 0.0
+        self.V_l = 0.0
+
+        return [self.V_f, self.V_r, self.V_b, self.V_l]
+
+    def _move(self):
         s = math.sin(self.theta)
         c = math.cos(self.theta)
 
+        self.x += self.speed * c * TIMESTEP
+        self.y += self.speed * s * TIMESTEP
 
-    def update(self, action, state, noise):
+    def set_action(self, action):
+        forward    = False
+        backward   = False
+        turn_left  = False
+        turn_right = False
+
+        if action[0] > 0: forward    = True
+        if action[1] > 0: backward   = True
+        if action[2] > 0: turn_left  = True
+        if action[3] > 0: turn_right = True
+
+        self.desired_speed = 0
+        self.desired_turn_speed = 0
+
+        if (forward and (not backward)):
+            self.desired_speed = AGENT_SPEED
+        if (backward and (not forward)):
+            self.desired_speed = -AGENT_SPEED
+        if (turn_left and (not turn_right)):
+            self.desired_turn_speed = -TURN_RATE
+        if (turn_right and (not turn_left)):
+            self.desired_turn_speed = TURN_RATE
+
+    def get_obs(self):
+        result = [
+            self.x, self.y, self.speed,
+            self.theta, self.theta_dot,
+            self.V_f, self.V_r, self.V_b, self.V_l
+        ]
+        scaleFactor = 10.0
+        return np.array(result) / scaleFactor
+
+    def update(self, noise=0.0):
         self.x     += np.random.randn() * noise
         self.theta += np.random.randn() * noise
 
-        self.x += self.x_dot * DT
-        self.theta += self.theta_dot * DT
+        # self.x += self.x_dot * DT
+        # self.theta += self.theta_dot * DT
 
-        self.x_dot += action.x_dot * DT
-        self.theta_dot += action.theta_dot * DT  
+        # self.x_dot += action.x_dot * DT
+        # self.theta_dot += action.theta_dot * DT
+
+        self.speed = self.desired_speed
 
         self._move()
 
 class AntDynamicsEnv(gym.Env):
     metadata = {
         'render_modes': ['human', 'rgb_array'],
-        'render_fps' : FPS
+        'render_fps' : SIM_FPS
     }
 
     ant_trail_data = None
@@ -122,7 +176,7 @@ class AntDynamicsEnv(gym.Env):
     def _get_ant_trails(self):
         type(self).ant_trail_data = load_data(
             "../../../data/2023_2/",
-            FPS / SCALE,
+            VIDEO_FPS / SIM_FPS,
             self.ant_arena
         )
 
@@ -134,7 +188,7 @@ class AntDynamicsEnv(gym.Env):
         into the ant's internal state.
         """
         num_trails = 1
-        trail_length = int(SCALE * 60)
+        trail_length = int(SIM_FPS * 60)
         s = np.zeros((num_trails, trail_length, 2), dtype=float)
 
         for i in range(num_trails):
@@ -150,7 +204,7 @@ class AntDynamicsEnv(gym.Env):
                     contains_null = False
 
         return Ant(s[0][0]), s[0], s[0][-1]
-    
+
     def _track_trail(self, pos: tuple, prev_pos: list):
         trail = []
         if TRACK_TRAIL == 'all':
@@ -159,7 +213,7 @@ class AntDynamicsEnv(gym.Env):
         if TRACK_TRAIL == 'fade':
             trail.append(pos)
             trail.append(prev_pos)
-            trail = trail[:FADE_DURATION * FPS]
+            trail = trail[:FADE_DURATION * VIDEO_FPS]
         if TRACK_TRAIL == 'none':
             pass
         return trail
@@ -167,7 +221,7 @@ class AntDynamicsEnv(gym.Env):
     def _is_rectangle_in_circle(self, rect, circle_center, circle_radius):
         """
         Check if a pygame.Rect is completely contained within a circle.
-        
+
         Parameters:
         rect (pygame.Rect): The rectangle to check.
         circle_center (tuple): The (x, y) coordinates of the center of the circle.
@@ -176,29 +230,31 @@ class AntDynamicsEnv(gym.Env):
         Returns:
         bool: True if the rectangle is completely contained within the circle, False otherwise.
         """
-        
+
         rect_corners = [
             (rect.left, rect.top),
             (rect.left, rect.bottom),
             (rect.right, rect.top),
             (rect.right, rect.bottom)
         ]
-        
+
         for x, y in rect_corners:
             dx = x - circle_center[0]
             dy = y - circle_center[1]
             distance = math.sqrt(dx ** 2 + dy ** 2)
-            
+
             if distance > circle_radius:
                 return False
-                
+
         return True
-    
+
     def _update_state(self, action, state, noise=0):
         x, x_dot, theta, theta_dot = self.ant.update(action, state, noise)
 
         return (x, x_dot, theta, theta_dot)
 
+    def get_observations(self):
+        return self.ant.get_obs()
 
     def _destroy(self):
         self.ant = None
@@ -217,7 +273,6 @@ class AntDynamicsEnv(gym.Env):
         self._destroy()
 
         self.t = 0      # timestep reset
-        self.running = True
         self.steps_beyond_done = None
 
         self.ant, self.target_trail, self.target_pos = self._select_target()
@@ -229,7 +284,7 @@ class AntDynamicsEnv(gym.Env):
             self._render_frame()
 
         return obs
-    
+
     def close(self):
         if self.window is not None:
             pygame.display.quit()
@@ -240,40 +295,26 @@ class AntDynamicsEnv(gym.Env):
         Each step, take the given action and return observations, reward, done (bool)
         and any other additional information if necessary.
         """
+        done = False
+        self.t += 1
+
         # Pygame controls and resources if render_mode == 'human'
-        if self.render_mode == "human":
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    self.running = False
+        if self.render_mode == "human": self._render_frame()
 
-                if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
-                        self.running = False
-                    # if event.key == pygame.K_LEFT:
-                    #     pass
-                    # if event.key == pygame.K_RIGHT:
-                    #     pass
-                    # if event.key == pygame.K_UP:
-                    #     pass
-                    # if event.key == pygame.K_DOWN:
-                    #     pass
-                    if event.key == pygame.K_r:
-                        self.reset()
-
-                self._render_frame()
-
-
+        self.ant.set_action(action)
+        self.ant.update()
+        self.get_observations()
 
 
         if self.t >= self.t_limit:
-            self.running = False
-        
-        if not self.running:
-            self.close()
+            done = True
 
-        
+        info = {}
+
+        reward = 0.0
+
         return obs, reward, done, info
-        
+
 
     def render(self):
         if self.render_mode == 'rgb_array':
@@ -288,13 +329,14 @@ class AntDynamicsEnv(gym.Env):
             self.window = pygame.display.set_mode(
                 (SCREEN_W, SCREEN_H)
             )
-        
+
         if self.clock is None and self.render_mode == 'human':
             self.clock = pygame.time.Clock()
-        
+
         canvas = pygame.Surface((SCREEN_W, SCREEN_H))
         canvas.fill((150, 150, 170))
 
+        # Project the circular arena
         pygame.draw.circle(
             canvas,
             (200, 200, 200),
@@ -306,7 +348,7 @@ class AntDynamicsEnv(gym.Env):
         for pos in self.target_trail:
             pygame.draw.rect(canvas, (180, 180, 180), (*pos, self.ant_dim.x, self.ant_dim.y))
         # Draw target ant
-        pygame.draw.rect(canvas, (0, 0, 0), (*self.target_trail[-1], self.ant_dim.x, self.ant_dim.y))    
+        pygame.draw.rect(canvas, (0, 0, 0), (*self.target_trail[-1], self.ant_dim.x, self.ant_dim.y))
 
         # Draw ant trail
         for pos in self.ant_trail:
@@ -333,8 +375,36 @@ if __name__ == "__main__":
     env = AntDynamicsEnv(render_mode='human')
     total_reward = 0
     obs = env.reset()
-    a = np.array([0.0, 0.0])
 
-    while env.running:
-        env.step()
+    manual_mode = True
+    manual_action = [0, 0, 0, 0]
 
+    done = False
+    while not done:
+        if manual_mode:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    done = True
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        done = True
+                    if event.key == pygame.K_r:
+                        env.reset()
+                    if event.key == pygame.K_UP:    manual_action[0] = 1
+                    if event.key == pygame.K_DOWN:  manual_action[1] = 1
+                    if event.key == pygame.K_LEFT:  manual_action[2] = 1
+                    if event.key == pygame.K_RIGHT: manual_action[3] = 1
+                elif event.type == pygame.KEYUP:
+                    if event.key == pygame.K_UP:    manual_action[0] = 0
+                    if event.key == pygame.K_DOWN:  manual_action[1] = 0
+                    if event.key == pygame.K_LEFT:  manual_action[2] = 0
+                    if event.key == pygame.K_RIGHT: manual_action[3] = 0
+            action = manual_action
+
+        if done: break
+
+        obs, reward, done, _ = env.step(action)
+
+
+    env.close()
+    print('Cumulative score:', total_reward)

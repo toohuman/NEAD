@@ -203,23 +203,23 @@ games['slimevolley'] = slime_volley
 
 ant_dynamics = Game(env_name='AntDynamics-v0',
   actionSelect='all', # all, soft, hard
-  input_size=9,
-  output_size=2,
+  input_size=10,
+  output_size=4,
   time_factor=0,
-  layers=[5, 5],
-  i_act=np.full(8,1),
+  layers=[20, 4],
+  i_act=np.full(10,1),
   h_act=[1,2,3,4,5,6,7,8,9,10],
-  o_act=np.full(2,1),
-  weightCap = 2.0,
+  o_act=np.full(5,1),
   noise_bias=0.0,
   output_noise=[False, False, False],
   max_episode_length = 3600,  # 60fps * 60 seconds
   in_out_labels = [
       # Inputs
-      'x','x_dot','cos(theta)','sin(theta)','theta_dot',
+      'x','y','speed',
+      'cos(theta)','sin(theta)','theta_dot',
       # Vision {forward, right, back, left}
       'V_f', 'V_r', 'V_b', 'V_l',
       # Outputs
-      'x_dot', 'theta_dot']
+      'forward', 'backward', 'turn_left', 'turn_right', 'stop']
 )
 games['ant_dynamics'] = ant_dynamics
