@@ -28,20 +28,57 @@ SCREEN_W = 900
 SCREEN_H = 900
 BOUNDARY_SCALE = 0.02
 
+
+vec2d = namedtuple('vec2d', ['x', 'y'])
+
+
 # Global parameters for agent control
-TIMESTEP = 1./SIM_FPS       # Not sure if this will be necessary, given the fixed FPS?
+TIMESTEP = 2./SIM_FPS       # Not sure if this will be necessary, given the fixed FPS?
+ANT_DIM = vec2d(5, 5)
 AGENT_SPEED = 10*1.75       # Taken from slimevolley, will need to adjust based on feeling
-TURN_RATE = 12 * 2 * math.pi / 360
+TURN_RATE = 65 * 2 * math.pi / 360 
 
 TRACK_TRAIL = 'all' # 'all', 'fade', 'none'
 FADE_DURATION = 15 # seconds
 
-vec2d = namedtuple('vec2d', ['x', 'y'])
+# Helper functions
+def is_rectangle_in_circle(x, y, circle_center, circle_radius):
+    """
+    Check if a pygame.Rect is completely contained within a circle.
+
+    Parameters:
+    rect (pygame.Rect): The rectangle to check.
+    circle_center (tuple): The (x, y) coordinates of the center of the circle.
+    circle_radius (float): The radius of the circle.
+
+    Returns:
+    bool: True if the rectangle is completely contained within the circle, False otherwise.
+    """
+    rect = pygame.Rect(x - ANT_DIM.x / 2., y - ANT_DIM.y / 2.,
+                       ANT_DIM.x, ANT_DIM.y)
+    rect_corners = [
+        (rect.left, rect.top),    # Top-left
+        (rect.left, rect.bottom), # Bottom-left
+        (rect.right, rect.top),   # Top-right
+        (rect.right, rect.bottom) # Bottom-right
+    ]
+
+    for x, y in rect_corners:
+        dx = x - circle_center[0]
+        dy = y - circle_center[1]
+        distance = math.sqrt(dx ** 2 + dy ** 2)
+
+        if distance > circle_radius:
+            return False
+
+    return True
+
 
 class Ant():
     """Agent class for the ant"""
+
     def __init__(self, pos):
-        self.x, self.y = pos
+        self.pos = vec2d(*pos)
         self.speed = 0.0
         self.theta = 0.0
         self.theta_dot = 0.0
@@ -62,12 +99,71 @@ class Ant():
 
         return [self.V_f, self.V_r, self.V_b, self.V_l]
 
-    def _move(self):
-        s = math.sin(self.theta)
-        c = math.cos(self.theta)
 
-        self.x += self.speed * c * TIMESTEP
-        self.y += self.speed * s * TIMESTEP
+    def _turn(self):
+        self.theta += (self.theta_dot * TIMESTEP)
+        self.theta = self.theta % (2 * np.pi)
+
+    # Working reflection code
+    # def _move(self, arena):
+    #     x = self.pos.x + self.speed * math.cos(self.theta) * TIMESTEP
+    #     y = self.pos.y + self.speed * math.sin(self.theta) * TIMESTEP
+
+    #     # If leaving the cirle, adjust the angle to return back inside
+    #     if not is_rectangle_in_circle(x, y, arena[0], arena[1]):
+    #         # Calculate the angle from the center of the circle to the agent
+    #         angle_to_center = np.arctan2(y - arena[0][1], x - arena[0][0])
+
+    #         theta = angle_to_center + np.pi / 2
+    #         theta = theta % (2 * np.pi)
+
+    #         x = x + math.cos(theta) * TIMESTEP
+    #         y = y + math.sin(theta) * TIMESTEP
+    #         self.theta = theta
+        
+    #     # Update position based on desired velocity + arena physics
+    #     self.pos = vec2d(x, y)
+
+
+    def _move(self, arena):
+        x = self.pos.x + self.speed * math.cos(self.theta) * TIMESTEP
+        y = self.pos.y + self.speed * math.sin(self.theta) * TIMESTEP
+        
+        # If leaving the cirle, adjust the angle to return back inside
+        if not is_rectangle_in_circle(x, y, arena[0], arena[1]):
+            # Calculate the angle from the center of the circle to the agent
+            #angle_to_center = np.arctan2(y - arena[0][1],x - arena[0][0])
+            angle_to_center = math.atan2(y - arena[0][1],x - arena[0][0])
+            if angle_to_center < 0:
+                angle_to_center += np.pi
+
+            d_theta = 0.
+            #if (self.theta >= angle_to_center and self.theta < angle_to_center + np.pi):
+            #    d_theta = np.pi / 2
+            #if (self.theta < angle_to_center and self.theta >= angle_to_center - np.pi):
+            #    d_theta = - np.pi / 2
+            # sending theta to mirror world
+            # self.theta = -self.theta % (2*np.pi)
+            if (self.theta >= angle_to_center) and (self.theta < angle_to_center + np.pi):
+                d_theta = np.pi / 2 - self.desired_turn_speed
+                print("First:", d_theta)
+            elif (self.theta < angle_to_center) or (self.theta >= angle_to_center - np.pi):
+                d_theta = -np.pi / 2 + self.desired_turn_speed
+                print("Second:", d_theta, self.theta, angle_to_center)
+            #theta = angle_to_center - (angle_to_center >= self.theta)*np.pi / 2 + (angle_to_center < self.theta)*np.pi / 2 
+            theta = angle_to_center + d_theta
+            #theta = angle_to_center + np.pi /2
+            theta = theta % (2 * np.pi)
+            print(f"angle ; {angle_to_center}")
+            print(f"theta  ; {theta}")
+
+            x = x + math.cos(theta) * TIMESTEP
+            y = y + math.sin(theta) * TIMESTEP
+            self.theta = theta
+        
+        # Update position based on desired velocity + arena physics
+        self.pos = vec2d(x, y)
+
 
     def set_action(self, action):
         forward    = False
@@ -75,10 +171,10 @@ class Ant():
         turn_left  = False
         turn_right = False
 
-        if action[0] > 0: forward    = True
-        if action[1] > 0: backward   = True
-        if action[2] > 0: turn_left  = True
-        if action[3] > 0: turn_right = True
+        if action[0] > 0.75: forward    = True
+        if action[1] > 0.75: backward   = True
+        if action[2] > 0.75: turn_left  = True
+        if action[3] > 0.75: turn_right = True
 
         self.desired_speed = 0
         self.desired_turn_speed = 0
@@ -92,28 +188,31 @@ class Ant():
         if (turn_right and (not turn_left)):
             self.desired_turn_speed = TURN_RATE
 
+
     def get_obs(self):
         result = [
-            self.x, self.y, self.speed,
+            self.pos.x, self.pos.y, self.speed,
             self.theta, self.theta_dot,
             self.V_f, self.V_r, self.V_b, self.V_l
         ]
         scaleFactor = 10.0
         return np.array(result) / scaleFactor
 
-    def update(self, noise=0.0):
-        self.x     += np.random.randn() * noise
-        self.theta += np.random.randn() * noise
 
-        # self.x += self.x_dot * DT
-        # self.theta += self.theta_dot * DT
-
-        # self.x_dot += action.x_dot * DT
-        # self.theta_dot += action.theta_dot * DT
+    def update(self, arena, noise=0.0):
+        self.pos   = vec2d(
+            self.pos.x + np.random.randn() * noise,
+            self.pos.y - np.random.randn() * noise
+        )
+        self.theta += (np.random.randn() * noise)
+        self.theta = self.theta % (2 * np.pi)
 
         self.speed = self.desired_speed
+        self.theta_dot = self.desired_turn_speed
 
-        self._move()
+        self._turn()
+        self._move(arena)
+
 
 class AntDynamicsEnv(gym.Env):
     metadata = {
@@ -126,7 +225,6 @@ class AntDynamicsEnv(gym.Env):
     def __init__(self, render_mode=None):
         self.force_mag = 10.0
         self.ant = None
-        self.ant_dim = vec2d(5, 5)
         self.ant_trail = None
 
         self.target_pos = None
@@ -169,16 +267,19 @@ class AntDynamicsEnv(gym.Env):
 
         self.reset()
 
+
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
+
     def _get_ant_trails(self):
         type(self).ant_trail_data = load_data(
-            "../../../data/2023_2/",
+            "../../../data/2023_2/",     
             VIDEO_FPS / SIM_FPS,
             self.ant_arena
         )
+
 
     def _select_target(self):
         """
@@ -205,6 +306,7 @@ class AntDynamicsEnv(gym.Env):
 
         return Ant(s[0][0]), s[0], s[0][-1]
 
+
     def _track_trail(self, pos: tuple, prev_pos: list):
         trail = []
         if TRACK_TRAIL == 'all':
@@ -218,43 +320,10 @@ class AntDynamicsEnv(gym.Env):
             pass
         return trail
 
-    def _is_rectangle_in_circle(self, rect, circle_center, circle_radius):
-        """
-        Check if a pygame.Rect is completely contained within a circle.
-
-        Parameters:
-        rect (pygame.Rect): The rectangle to check.
-        circle_center (tuple): The (x, y) coordinates of the center of the circle.
-        circle_radius (float): The radius of the circle.
-
-        Returns:
-        bool: True if the rectangle is completely contained within the circle, False otherwise.
-        """
-
-        rect_corners = [
-            (rect.left, rect.top),
-            (rect.left, rect.bottom),
-            (rect.right, rect.top),
-            (rect.right, rect.bottom)
-        ]
-
-        for x, y in rect_corners:
-            dx = x - circle_center[0]
-            dy = y - circle_center[1]
-            distance = math.sqrt(dx ** 2 + dy ** 2)
-
-            if distance > circle_radius:
-                return False
-
-        return True
-
-    def _update_state(self, action, state, noise=0):
-        x, x_dot, theta, theta_dot = self.ant.update(action, state, noise)
-
-        return (x, x_dot, theta, theta_dot)
 
     def get_observations(self):
         return self.ant.get_obs()
+
 
     def _destroy(self):
         self.ant = None
@@ -268,6 +337,7 @@ class AntDynamicsEnv(gym.Env):
 
         self.window = None
         self.clock = None
+
 
     def reset(self):
         self._destroy()
@@ -285,10 +355,12 @@ class AntDynamicsEnv(gym.Env):
 
         return obs
 
+
     def close(self):
         if self.window is not None:
             pygame.display.quit()
             pygame.quit()
+
 
     def step(self, action):
         """
@@ -302,9 +374,8 @@ class AntDynamicsEnv(gym.Env):
         if self.render_mode == "human": self._render_frame()
 
         self.ant.set_action(action)
-        self.ant.update()
+        self.ant.update(self.ant_arena)
         self.get_observations()
-
 
         if self.t >= self.t_limit:
             done = True
@@ -346,16 +417,22 @@ class AntDynamicsEnv(gym.Env):
 
         # Draw projected target trail
         for pos in self.target_trail:
-            pygame.draw.rect(canvas, (180, 180, 180), (*pos, self.ant_dim.x, self.ant_dim.y))
+            pygame.draw.rect(canvas, (180, 180, 180), (*pos, ANT_DIM.x, ANT_DIM.y))
         # Draw target ant
-        pygame.draw.rect(canvas, (0, 0, 0), (*self.target_trail[-1], self.ant_dim.x, self.ant_dim.y))
+        pygame.draw.rect(canvas, (0, 0, 0), (*self.target_trail[-1], ANT_DIM.x, ANT_DIM.y))
 
         # Draw ant trail
         for pos in self.ant_trail:
-            pygame.draw.rect(canvas, (150, 150, 255), (*pos, self.ant_dim.x, self.ant_dim.y))
+            pygame.draw.rect(canvas, (150, 150, 255), (*pos, ANT_DIM.x, ANT_DIM.y))
 
         # Draw ant
-        pygame.draw.rect(canvas, (0, 0, 255), (self.ant.x, self.ant.y, self.ant_dim.x, self.ant_dim.y))
+        pygame.draw.rect(
+            canvas, (0, 0, 255),
+            (
+                self.ant.pos.x - ANT_DIM.x/2., self.ant.pos.y - ANT_DIM.y/2.,
+                ANT_DIM.x, ANT_DIM.y
+            )
+        )
 
         if self.render_mode == 'human':
             self.window.blit(canvas, canvas.get_rect())
