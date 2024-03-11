@@ -136,33 +136,35 @@ class Ant():
 
 
     def _move(self, arena):
-        # Move the ant in the current direction, assuming no obstacles
-        x = self.pos.x + self.desired_speed * math.cos(self.theta) * TIMESTEP
-        y = self.pos.y + self.desired_speed * math.sin(self.theta) * TIMESTEP
-        
-        # If leaving the cirle, adjust the angle to return back inside
-        if not is_rectangle_in_circle(x, y, arena[0], arena[1]):
-            # Calculate the angle from the center of the circle to the agent
-            angle_to_center = math.atan2(y - arena[0][1],x - arena[0][0])
-            if angle_to_center < 0:
-                print("Before:", angle_to_center)
-                angle_to_center += np.pi
-                print("After:", angle_to_center)
-            d_theta = 0
-            if (self.theta >= angle_to_center) and (self.theta < angle_to_center + np.pi):
-                d_theta = np.pi / 2 - self.desired_turn_speed
-            elif (self.theta < angle_to_center) or (self.theta >= angle_to_center - np.pi):
-                d_theta = -np.pi / 2 + self.desired_turn_speed
-                
-            theta = angle_to_center + d_theta
-            theta = theta % (2 * np.pi)
+        """
+        Move an agent from its current position (x, y) according to desired_speed
+        and angle theta using matrix multiplication.
+        """
+        # Define the unit vector with angle theta.
+        unit_direction = [np.cos(self.theta), np.sin(self.theta)]
+        unit_direction /= np.linalg.norm(unit_direction)
+        desired_pos = np.add(
+            np.array(self.pos),
+            np.array(unit_direction) * self.desired_speed * TIMESTEP
+        )
 
-            x = x + math.cos(theta) * TIMESTEP
-            y = y + math.sin(theta) * TIMESTEP
-            self.theta = theta
-        
-        # Update position based on desired velocity + arena physics
-        self.pos = vec2d(x, y)
+        # If leaving the cirle, push agent back into circle.
+        if is_rectangle_in_circle(desired_pos[0], desired_pos[1], arena[0], arena[1]):
+            self.pos = vec2d(desired_pos[0], desired_pos[1])
+        # Otherwise, slightly adjust the agent's angle theta towards tangent at the
+        # circle's circumference.
+        # else:
+        #     # Calculate the angle from the center of the circle to the agent
+        #     angle_to_center = math.atan2(self.pos.y - arena[0][1], self.pos.x - arena[0][0])
+        #     if angle_to_center < 0: angle_to_center += np.pi
+        #     if (self.theta >= angle_to_center) and (self.theta < angle_to_center + np.pi):
+        #         d_theta = np.pi / 2 - self.desired_turn_speed
+        #     elif (self.theta < angle_to_center) or (self.theta >= angle_to_center - np.pi):
+        #         d_theta = -np.pi / 2 + self.desired_turn_speed
+                
+        #     theta = self.theta + d_theta * TIMESTEP
+        #     theta = theta % (2 * np.pi)
+        #     self.theta = theta
 
 
     def set_action(self, action):
