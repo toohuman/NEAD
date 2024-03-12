@@ -283,30 +283,44 @@ class AntDynamicsEnv(gym.Env):
         )
 
 
-    def _select_target(self):
+    def _select_target(self, others=False, num_trails=1):
         """
         Select an ant trail as the target trail for the current trial.
         At the moment, we will just select a single target trail, but we should
         also provide positions of other ants within a given radius for feeding
         into the ant's internal state.
         """
-        num_trails = 1
         trail_length = int(SIM_FPS * 60)
         s = np.zeros((num_trails, trail_length, 2), dtype=float)
+        num_ants = len(type(self).ant_trail_data.columns.levels[0])
+        # If showing positions of other ants during the trail
+        other_ants = None
+        if others:
+            other_ants = np.zeros(
+                (num_trails, num_ants - 1, trail_length, 2),
+                dtype=float
+            )
 
         for i in range(num_trails):
             start = np.random.randint(len(type(self).ant_trail_data) - trail_length)
-            pos_indices = list(np.random.permutation(len(type(self).ant_trail_data.columns.levels[0])))
+            indices = list(np.random.permutation(num_ants))
+            indices_set = set(indices)
             contains_null = True
-            while contains_null and len(pos_indices) > 0:
-                ant_index = pos_indices.pop()
+            while contains_null and len(indices) > 0:
+                ant_index = indices.pop()
                 if np.isnan(np.array(type(self).ant_trail_data[ant_index][start:start + trail_length])).any():
                     continue
                 else:
                     s[i][0:trail_length] = type(self).ant_trail_data[ant_index][start:start + trail_length]
                     contains_null = False
+                    indices_set.discard(ant_index)
+                    if others:
+                        trail_index = 0
+                        for other_ant_index in indices_set:
+                            other_ants[i][trail_index][0:trail_length] = type(self).ant_trail_data[other_ant_index][start:start + trail_length]
+                            trail_index += 1
 
-        return Ant(s[0][0]), s[0], s[0][-1]
+        return Ant(s[0][0]), s[0], s[0][-1], other_ants
 
 
     def _track_trail(self, pos: tuple, prev_pos: list):
@@ -334,6 +348,8 @@ class AntDynamicsEnv(gym.Env):
         self.target_pos = None
         self.target_trail = []
 
+        self.other_ants = None
+
         self.viewer = None
         self.state = None
 
@@ -347,7 +363,7 @@ class AntDynamicsEnv(gym.Env):
         self.t = 0      # timestep reset
         self.steps_beyond_done = None
 
-        self.ant, self.target_trail, self.target_pos = self._select_target()
+        self.ant, self.target_trail, self.target_pos, self.other_ants = self._select_target()
         self.state = np.random.normal(loc=np.array([0.0, 0.0, np.pi, 0.0]), scale=np.array([0.2, 0.2, 0.2, 0.2]))
         x, x_dot, theta, theta_dot = self.state
         obs = np.array([x, x_dot, np.cos(theta), np.sin(theta), theta_dot])
