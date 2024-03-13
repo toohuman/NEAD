@@ -141,12 +141,19 @@ class Ant():
         and angle theta using matrix multiplication.
         """
         # Define the unit vector with angle theta.
-        unit_direction = [np.cos(self.theta), np.sin(self.theta)]
-        unit_direction /= np.linalg.norm(unit_direction)
-        desired_pos = np.add(
-            np.array(self.pos),
-            np.array(unit_direction) * self.desired_speed * TIMESTEP
-        )
+        # unit_direction = [np.cos(self.theta), np.sin(self.theta)]
+        # unit_direction /= np.linalg.norm(unit_direction)
+        # desired_pos = np.add(
+        #     np.array(self.pos),
+        #     np.array(unit_direction) * self.desired_speed * TIMESTEP
+        # )
+        # Calculate the desired direction of travel (rotate to angle theta)
+        direction = np.array([
+            np.cos(self.theta) - np.sin(self.theta),
+            np.sin(self.theta) + np.cos(self.theta),
+        ]) * self.desired_speed * TIMESTEP
+        # Set the desired position based on direction and speed relative to timestep
+        desired_pos = np.add(np.array(self.pos), direction)
 
         # If leaving the cirle, push agent back into circle.
         if is_rectangle_in_circle(desired_pos[0], desired_pos[1], arena[0], arena[1]):
@@ -229,7 +236,6 @@ class AntDynamicsEnv(gym.Env):
         self.ant = None
         self.ant_trail = None
 
-        self.target_pos = None
         self.target_trail = None
 
         self.seed()
@@ -238,7 +244,7 @@ class AntDynamicsEnv(gym.Env):
         self.noise = 0
 
         self.t = 0
-        self.t_limit = 3600
+        self.t_limit = SIM_FPS * 60 # 60 seconds
 
         assert render_mode is None or render_mode in type(self).metadata["render_modes"]
         self.render_mode = render_mode
@@ -267,8 +273,6 @@ class AntDynamicsEnv(gym.Env):
         if not type(self).ant_trail_data:
             self._get_ant_trails()
 
-        self.reset()
-
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -283,7 +287,7 @@ class AntDynamicsEnv(gym.Env):
         )
 
 
-    def _select_target(self, others=False, num_trails=1):
+    def _select_target(self, others=False):
         """
         Select an ant trail as the target trail for the current trial.
         At the moment, we will just select a single target trail, but we should
@@ -291,36 +295,36 @@ class AntDynamicsEnv(gym.Env):
         into the ant's internal state.
         """
         trail_length = int(SIM_FPS * 60)
-        s = np.zeros((num_trails, trail_length, 2), dtype=float)
+        s = np.zeros((trail_length, 2), dtype=float)
         num_ants = len(type(self).ant_trail_data.columns.levels[0])
         # If showing positions of other ants during the trail
         other_ants = None
         if others:
-            other_ants = np.zeros(
-                (num_trails, num_ants - 1, trail_length, 2),
-                dtype=float
-            )
+            other_ants = np.zeros((num_ants - 1, trail_length, 2),
+                                   dtype=float)
 
-        for i in range(num_trails):
-            start = np.random.randint(len(type(self).ant_trail_data) - trail_length)
-            indices = list(np.random.permutation(num_ants))
-            indices_set = set(indices)
-            contains_null = True
-            while contains_null and len(indices) > 0:
-                ant_index = indices.pop()
-                if np.isnan(np.array(type(self).ant_trail_data[ant_index][start:start + trail_length])).any():
+        start = np.random.randint(len(type(self).ant_trail_data) - trail_length)
+        indices = list(np.random.permutation(num_ants))
+        indices_set = set(indices)
+        contains_null = True
+        while contains_null and len(indices) > 0:
+            ant_index = indices.pop()
+            if np.isnan(np.array(type(self).ant_trail_data[ant_index][start:start + trail_length])).any():
+                continue
+            else:
+                s[0:trail_length] = type(self).ant_trail_data[ant_index][start:start + trail_length]
+                contains_null = False
+                indices_set.discard(ant_index)
+        if others and not contains_null:
+            trail_index = 0
+            for other_ant_index in indices_set:
+                if np.isnan(np.array(type(self).ant_trail_data[other_ant_index][start:start + trail_length])).any():
+                    np.resize(other_ants, (np.shape(other_ants)[1]-1, trail_length, 2))
                     continue
-                else:
-                    s[i][0:trail_length] = type(self).ant_trail_data[ant_index][start:start + trail_length]
-                    contains_null = False
-                    indices_set.discard(ant_index)
-                    if others:
-                        trail_index = 0
-                        for other_ant_index in indices_set:
-                            other_ants[i][trail_index][0:trail_length] = type(self).ant_trail_data[other_ant_index][start:start + trail_length]
-                            trail_index += 1
+                other_ants[trail_index][0:trail_length] = type(self).ant_trail_data[other_ant_index][start:start + trail_length]
+                trail_index += 1
 
-        return Ant(s[0][0]), s[0], s[0][-1], other_ants
+        return Ant(s[0]), s, other_ants
 
 
     def _track_trail(self, pos: tuple, prev_pos: list):
@@ -345,7 +349,6 @@ class AntDynamicsEnv(gym.Env):
         self.ant = None
         self.ant_trail = []
 
-        self.target_pos = None
         self.target_trail = []
 
         self.other_ants = None
@@ -363,7 +366,7 @@ class AntDynamicsEnv(gym.Env):
         self.t = 0      # timestep reset
         self.steps_beyond_done = None
 
-        self.ant, self.target_trail, self.target_pos, self.other_ants = self._select_target()
+        self.ant, self.target_trail, self.other_ants = self._select_target(others=True)
         self.state = np.random.normal(loc=np.array([0.0, 0.0, np.pi, 0.0]), scale=np.array([0.2, 0.2, 0.2, 0.2]))
         x, x_dot, theta, theta_dot = self.state
         obs = np.array([x, x_dot, np.cos(theta), np.sin(theta), theta_dot])
@@ -433,24 +436,44 @@ class AntDynamicsEnv(gym.Env):
             self.ant_arena[1]
         )
 
+        if self.other_ants is not None:
+            try:
+                for other_ant in self.other_ants:
+                    pygame.draw.rect(canvas, (180, 180, 180),
+                                    (other_ant[self.t][0] - ANT_DIM.x/2.,
+                                    other_ant[self.t][1] - ANT_DIM.y/2.,
+                                    ANT_DIM.x, ANT_DIM.y))
+
+            except IndexError:
+                print(other_ant)
+                logger.error("End of time series reached for other ants.")
+            except TypeError:
+                print(other_ant)
+                logger.error("Cannot draw ant with provided coordinates.")
+
         # Draw projected target trail
         for pos in self.target_trail:
-            pygame.draw.rect(canvas, (180, 180, 180), (*pos, ANT_DIM.x, ANT_DIM.y))
+            pygame.draw.rect(canvas, (220, 180, 180),
+                            (pos[0] - ANT_DIM.x/2.,
+                             pos[1] - ANT_DIM.y/2.,
+                             ANT_DIM.x, ANT_DIM.y))
+        
         # Draw target ant
-        pygame.draw.rect(canvas, (0, 0, 0), (*self.target_trail[-1], ANT_DIM.x, ANT_DIM.y))
+        pygame.draw.rect(canvas, (180, 0, 0),
+                        (self.target_trail[-1][0] - ANT_DIM.x/2.,
+                         self.target_trail[-1][1] - ANT_DIM.y/2.,
+                         ANT_DIM.x, ANT_DIM.y))
 
         # Draw ant trail
         for pos in self.ant_trail:
             pygame.draw.rect(canvas, (150, 150, 255), (*pos, ANT_DIM.x, ANT_DIM.y))
 
-        # Draw ant
-        pygame.draw.rect(
-            canvas, (0, 0, 255),
-            (
-                self.ant.pos.x - ANT_DIM.x/2., self.ant.pos.y - ANT_DIM.y/2.,
-                ANT_DIM.x, ANT_DIM.y
-            )
-        )
+        # Draw ant last; to ensure visibility.
+        pygame.draw.rect(canvas, (0, 0, 180),
+                        (self.ant.pos.x - ANT_DIM.x/2.,
+                         self.ant.pos.y - ANT_DIM.y/2.,
+                         ANT_DIM.x, ANT_DIM.y))
+
 
         if self.render_mode == 'human':
             self.window.blit(canvas, canvas.get_rect())
