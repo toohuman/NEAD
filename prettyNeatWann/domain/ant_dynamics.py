@@ -224,13 +224,16 @@ class Ant():
     def get_obs(self, others=None):
         if others is not None:
             self._detect_vision(self._detect_nearby_ants(others))
-        result = [
-            self.pos.x, self.pos.y, self.speed,
-            self.theta, self.theta_dot,
-            self.V_f, self.V_r, self.V_b, self.V_l
-        ]
-        scaleFactor = 1.0
-        return np.array(result) / scaleFactor
+        result = {
+            'x': self.pos.x, 'y': self.pos.y,
+            'speed': self.speed,
+            'theta': self.theta, 'theta_dot': self.theta_dot,
+            'V_f': self.V_f,
+            'V_r': self.V_r,
+            'V_b': self.V_b,
+            'V_l': self.V_l
+        }
+        return result
 
 
     def update(self, arena, noise=0.0):
@@ -370,6 +373,13 @@ class AntDynamicsEnv(gym.Env):
         return trail
 
 
+    def _reward_function(self):
+        """
+        Calculate the reward given the focal ant and the accuracy of its behaviour
+        over the trial, given the source data as the ground truth.
+        """
+
+
     def get_observations(self, others=None):
         return self.ant.get_obs(others)
 
@@ -377,9 +387,7 @@ class AntDynamicsEnv(gym.Env):
     def _destroy(self):
         self.ant = None
         self.ant_trail = []
-
         self.target_trail = []
-
         self.other_ants = None
 
         self.viewer = None
@@ -396,9 +404,19 @@ class AntDynamicsEnv(gym.Env):
         self.steps_beyond_done = None
 
         self.ant, self.target_trail, self.other_ants = self._select_target(others=True)
-        self.state = np.random.normal(loc=np.array([0.0, 0.0, np.pi, 0.0]), scale=np.array([0.2, 0.2, 0.2, 0.2]))
-        x, x_dot, theta, theta_dot = self.state
-        obs = self.get_observations(self.other_ants[:,self.t])
+        self.state = self.get_observations(self.other_ants[:,self.t])
+        obs = [
+            # x, y position and speed
+            self.state['x'], self.state['y'], self.state['speed'],
+            # cos and sine of agent's angle theta
+            np.cos(self.state['theta']), np.sin(self.state['theta']),
+            self.state['theta_dot'],
+            # Vision (directional detection of other ants)
+            self.state['V_f'],
+            self.state['V_r'],
+            self.state['V_b'],
+            self.state['V_l']
+        ]
 
         if self.render_mode == 'human':
             self._render_frame()
@@ -432,7 +450,7 @@ class AntDynamicsEnv(gym.Env):
 
         info = {}
 
-        reward = 0.0
+        reward = self._reward_function()
 
         return obs, reward, done, info
 
