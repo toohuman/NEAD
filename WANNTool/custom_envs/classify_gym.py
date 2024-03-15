@@ -177,7 +177,7 @@ def preprocess(img,size, patchCorner=(0,0), patchDim=None, unskew=True):
   procImg  = np.empty((nImg,size[0],size[1]))
 
   # Unskew and Resize
-  if unskew == True:    
+  if unskew:    
     for i in range(nImg):
       procImg[i,:,:] = deskew(cv2.resize(img[i,:,:],size),size)
 

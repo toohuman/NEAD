@@ -55,11 +55,11 @@ def gatherData(data,alg,gen,hyp,savePop=False):
     data - (DataGatherer) - updated run data
   """
   data.gatherData(alg.pop, alg.species)
-  if (gen%hyp['save_mod']) is 0:
+  if (gen%hyp['save_mod']) == 0:
     data = checkBest(data)
     data.save(gen)
 
-  if savePop is True: # Get a sample pop to play with in notebooks    
+  if savePop: # Get a sample pop to play with in notebooks    
     global fileName
     pref = 'log/' + fileName
     import pickle
@@ -83,7 +83,7 @@ def checkBest(data):
   * This is a bit hacky, but is only for data gathering, and not optimization
   """
   global filename, hyp
-  if data.newBest is True:
+  if data.newBest:
     bestReps = max(hyp['bestReps'], (nWorker-1))
     rep = np.tile(data.best[-1], bestReps)
     fitVector = batchMpiEval(rep, sameSeedForEachIndividual=False)

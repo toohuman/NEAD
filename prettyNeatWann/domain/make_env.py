@@ -52,6 +52,15 @@ def make_env(env_name, seed=-1, render_mode=False):
       env.t_limit = 200
 
 
+  # -- Cart Pole Swing up -------------------------------------------- -- #
+  elif (env_name.startswith("AntDynamics")):
+    from domain.ant_dynamics import AntDynamicsEnv
+    env = AntDynamicsEnv()
+    # if (env_name.startswith("AntDynamicsEnv")):
+    #   env.t_limit = 200
+
+
+
 
 
   # -- Other  -------------------------------------------------------- -- #

@@ -161,7 +161,7 @@ def loadHyp(pFileName, printHyp=False):
 
 
 
-  if printHyp is True:
+  if printHyp:
     print(json.dumps(hyp, indent=4, sort_keys=True))
   return hyp
 

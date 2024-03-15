@@ -35,7 +35,7 @@ def nsga_sort(objVals, returnFronts=False):
   rank = np.empty_like(tmp)
   rank[tmp] = np.arange(len(tmp))
 
-  if returnFronts is True:
+  if returnFronts:
     return rank, fronts
   else:
     return rank

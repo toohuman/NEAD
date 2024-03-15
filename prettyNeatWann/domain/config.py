@@ -210,6 +210,7 @@ ant_dynamics = Game(env_name='AntDynamics-v0',
   i_act=np.full(10,1),
   h_act=[1,2,3,4,5,6,7,8,9,10],
   o_act=np.full(5,1),
+  weightCap = 2.0,
   noise_bias=0.0,
   output_noise=[False, False, False],
   max_episode_length = 3600,  # 60fps * 60 seconds

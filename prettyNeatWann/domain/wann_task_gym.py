@@ -69,7 +69,7 @@ class WannGymTask(GymTask):
     Returns:
       fitness - (float)    - mean reward over all trials
     """
-    if nRep is False:
+    if nRep == False:
       nRep = hyp['alg_nReps']
 
     # Set weight values to test WANN with
@@ -89,7 +89,7 @@ class WannGymTask(GymTask):
         else:
           reward[iRep,iVal] = self.testInd(wMat, aVec, seed=seed+iRep,view=view)
           
-    if returnVals is True:
+    if returnVals:
       return np.mean(reward,axis=0), wVals
     return np.mean(reward,axis=0)
  

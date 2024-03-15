@@ -1,5 +1,5 @@
 {
-    "task":"ants",
+    "task":"ant_dynamics",
     "maxGen": 1024,
     "alg_nReps": 3,
     "popSize": 64,

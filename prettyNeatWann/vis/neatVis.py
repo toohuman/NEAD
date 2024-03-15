@@ -85,14 +85,14 @@ def viewReps(prefix,label=[],val='Fit', title='Fitness',\
   else: # Fitness
     plt.ylabel('Best Fitness Found')
 
-  if getBest is True:
+  if getBest:
     return fig,ax,bestRun
   else:
     return fig,ax
 # -- ------------ -- ----------------------------------------------#
 
 def getAxis(axis):
-  if axis is not False:
+  if axis:
     ax = axis
     fig = ax.figure.canvas 
   else:
