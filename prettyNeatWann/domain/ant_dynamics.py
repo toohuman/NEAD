@@ -37,7 +37,7 @@ TIME_LIMIT = SIM_FPS * 20   # 60 seconds
 
 ANT_DIM = vec2d(5, 5)
 AGENT_SPEED = 10*1.75       # Taken from slimevolley, will need to adjust based on feeling
-TURN_RATE = 65 * 2 * math.pi / 360 
+TURN_RATE = 90 * 2 * math.pi / 360 
 VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
 TRACK_TRAIL = 'all' # 'all', 'fade', 'none'
@@ -357,6 +357,19 @@ class AntDynamicsEnv(gym.Env):
         return Ant(s[0]), s, other_ants
 
 
+    def _get_starting_angle(self, trail):
+        theta = 0
+        threshold = 2
+        time = 1
+        while time != len(trail):
+            dx, dy = trail[time] - trail[0]
+            if threshold < (np.sqrt(dx**2 + dy**2)):
+                theta = np.arctan2(dy, dx)
+                break
+            time += 1
+        return theta
+
+
     def _track_trail(self, pos: vec2d):
         self.ant_trail.append(pos)
 
@@ -430,6 +443,7 @@ class AntDynamicsEnv(gym.Env):
             others=True,
             trail_len=TIME_LIMIT
         )
+        self.ant.theta = self._get_starting_angle(self.target_trail)
         self.state = self.get_observations(self.other_ants[:,self.t])
         obs = [
             # x, y position and speed
