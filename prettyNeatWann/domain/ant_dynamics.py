@@ -32,12 +32,15 @@ vec2d = namedtuple('vec2d', ['x', 'y'])
 
 # Global parameters for agent control
 TIMESTEP = 2./SIM_FPS       # Not sure if this will be necessary, given the fixed FPS?
+# TIME_LIMIT = SIM_FPS * 60   # 60 seconds
+TIME_LIMIT = SIM_FPS * 20   # 60 seconds
+
 ANT_DIM = vec2d(5, 5)
 AGENT_SPEED = 10*1.75       # Taken from slimevolley, will need to adjust based on feeling
 TURN_RATE = 65 * 2 * math.pi / 360 
 VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
-TRACK_TRAIL = 'fade' # 'all', 'fade', 'none'
+TRACK_TRAIL = 'all' # 'all', 'fade', 'none'
 FADE_DURATION = 5 # seconds
 
 # Helper functions
@@ -169,10 +172,7 @@ class Ant():
         #     np.array(unit_direction) * self.desired_speed * TIMESTEP
         # )
         # Calculate the desired direction of travel (rotate to angle theta)
-        direction = np.array([
-            np.cos(self.theta) - np.sin(self.theta),
-            np.sin(self.theta) + np.cos(self.theta),
-        ]) * self.desired_speed * TIMESTEP
+        direction = np.array([np.cos(self.theta), np.sin(self.theta)]) * self.desired_speed * TIMESTEP
         # Set the desired position based on direction and speed relative to timestep
         desired_pos = np.add(np.array(self.pos), direction)
 
@@ -272,7 +272,7 @@ class AntDynamicsEnv(gym.Env):
         self.noise = 0
 
         self.t = 0
-        self.t_limit = SIM_FPS * 60 # 60 seconds
+        self.t_limit = TIME_LIMIT
 
         assert render_mode is None or render_mode in type(self).metadata["render_modes"]
         self.render_mode = render_mode
@@ -315,14 +315,14 @@ class AntDynamicsEnv(gym.Env):
         )
 
 
-    def _select_target(self, others=False):
+    def _select_target(self, others=False, trail_len=SIM_FPS*60):
         """
         Select an ant trail as the target trail for the current trial.
         At the moment, we will just select a single target trail, but we should
         also provide positions of other ants within a given radius for feeding
         into the ant's internal state.
         """
-        trail_length = int(SIM_FPS * 60)
+        trail_length = int(trail_len)+1
         s = np.zeros((trail_length, 2), dtype=float)
         num_ants = len(type(self).ant_trail_data.columns.levels[0])
         # If showing positions of other ants during the trail
@@ -358,15 +358,36 @@ class AntDynamicsEnv(gym.Env):
 
 
     def _track_trail(self, pos: vec2d):
-        if TRACK_TRAIL == 'all':
-            self.ant_trail.append(pos)
-        if TRACK_TRAIL == 'fade':
-            self.ant_trail.append(pos)
-            trail_length = len(self.ant_trail)
-            if trail_length > FADE_DURATION * SIM_FPS:
-                self.ant_trail = self.ant_trail[trail_length - FADE_DURATION * SIM_FPS:]
-        if TRACK_TRAIL == 'none':
-            pass
+        self.ant_trail.append(pos)
+
+
+    def _calculate_area_between_trails(self, path1, path2):
+        """
+        Calculate the area between two trajectories.
+
+        Parameters:
+        - path1: List of (x, y) tuples for the first path.
+        - path2: List of (x, y) tuples for the second path.
+
+        Returns:
+        - total_area: The total area between the two paths.
+        """
+        total_area = 0.0
+        
+        # Assuming both paths have the same number of points
+        for i in range(1, len(path1)):
+            # Calculate the height (h) as the difference in x between successive points
+            h = abs(path1[i][0] - path1[i-1][0])
+            
+            # Calculate the lengths of the parallel sides (b1 and b2)
+            b1 = abs(path1[i-1][1] - path2[i-1][1])
+            b2 = abs(path1[i][1] - path2[i][1])
+            
+            # Calculate the area of the trapezoid and add it to the total area
+            trapezoid_area = 0.5 * (b1 + b2) * h
+            total_area += trapezoid_area
+        
+        return total_area
 
 
     def _reward_function(self):
@@ -375,11 +396,12 @@ class AntDynamicsEnv(gym.Env):
         over the trial, given the source data as the ground truth.
         """
 
-        # Same polarity case...
+        reward = self._calculate_area_between_trails(
+            self.ant_trail,
+            self.target_trail
+        )
 
-        # Sudden reversed polarity; negative speed
-
-        # 
+        return reward
 
     def get_observations(self, others=None):
         return self.ant.get_obs(others)
@@ -404,7 +426,10 @@ class AntDynamicsEnv(gym.Env):
         self.t = 0      # timestep reset
         self.steps_beyond_done = None
 
-        self.ant, self.target_trail, self.other_ants = self._select_target(others=True)
+        self.ant, self.target_trail, self.other_ants = self._select_target(
+            others=True,
+            trail_len=TIME_LIMIT
+        )
         self.state = self.get_observations(self.other_ants[:,self.t])
         obs = [
             # x, y position and speed
@@ -452,7 +477,9 @@ class AntDynamicsEnv(gym.Env):
 
         info = {}
 
-        reward = self._reward_function()
+        reward = 0
+        if done:
+            reward = self._reward_function() / TIME_LIMIT
 
         return obs, reward, done, info
 
@@ -495,11 +522,19 @@ class AntDynamicsEnv(gym.Env):
                              ANT_DIM.x, ANT_DIM.y))
 
         # Draw ant trail
-        for pos in self.ant_trail:
+        trail_length = len(self.ant_trail)
+        if TRACK_TRAIL == 'all':
+            self.ant_trail_segment = self.ant_trail
+        elif TRACK_TRAIL == 'fade':
+            if trail_length > FADE_DURATION * SIM_FPS:
+                self.ant_trail_segment = self.ant_trail[trail_length - FADE_DURATION * SIM_FPS:]
+        else:
+            self.ant_trail_segment = []
+        for pos in self.ant_trail_segment:
             pygame.draw.rect(canvas, (180, 180, 220),
                         (pos.x - ANT_DIM.x/2.,
-                         pos.y - ANT_DIM.y/2.,
-                         ANT_DIM.x, ANT_DIM.y))
+                        pos.y - ANT_DIM.y/2.,
+                        ANT_DIM.x, ANT_DIM.y))
 
         ### THEN DRAW ANTS AT THEIR CURRENT POSITIONS
 
@@ -579,6 +614,7 @@ if __name__ == "__main__":
         if done: break
 
         obs, reward, done, _ = env.step(action)
+        total_reward += reward
 
 
     env.close()
