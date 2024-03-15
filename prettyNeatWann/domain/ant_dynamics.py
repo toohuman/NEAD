@@ -359,18 +359,14 @@ class AntDynamicsEnv(gym.Env):
         return Ant(s[0]), s, other_ants
 
 
-    def _track_trail(self, pos: tuple, prev_pos: list):
-        trail = []
+    def _track_trail(self, pos: vec2d):
         if TRACK_TRAIL == 'all':
-            trail.append(pos)
-            trail.append(prev_pos)
+            self.ant_trail.append(pos)
         if TRACK_TRAIL == 'fade':
-            trail.append(pos)
-            trail.append(prev_pos)
-            trail = trail[:FADE_DURATION * VIDEO_FPS]
+            self.ant_trail.append(pos)
+            self.ant_trail = self.ant_trail[:FADE_DURATION * VIDEO_FPS]
         if TRACK_TRAIL == 'none':
             pass
-        return trail
 
 
     def _reward_function(self):
@@ -379,6 +375,11 @@ class AntDynamicsEnv(gym.Env):
         over the trial, given the source data as the ground truth.
         """
 
+        # Same polarity case...
+
+        # Sudden reversed polarity; negative speed
+
+        # 
 
     def get_observations(self, others=None):
         return self.ant.get_obs(others)
@@ -444,6 +445,7 @@ class AntDynamicsEnv(gym.Env):
         self.ant.set_action(action)
         self.ant.update(self.ant_arena)
         obs = self.get_observations(self.other_ants[:,self.t])
+        self._track_trail(self.ant.pos)
         
         if self.t >= self.t_limit:
             done = True
@@ -483,6 +485,25 @@ class AntDynamicsEnv(gym.Env):
             self.ant_arena[1]
         )
 
+        ### DRAW TRAILS FIRST 
+
+        # Draw projected target trail
+        for pos in self.target_trail:
+            pygame.draw.rect(canvas, (220, 180, 180),
+                            (pos[0] - ANT_DIM.x/2.,
+                             pos[1] - ANT_DIM.y/2.,
+                             ANT_DIM.x, ANT_DIM.y))
+
+        # Draw ant trail
+        for pos in self.ant_trail:
+            pygame.draw.rect(canvas, (180, 180, 220),
+                        (pos.x - ANT_DIM.x/2.,
+                         pos.y - ANT_DIM.y/2.,
+                         ANT_DIM.x, ANT_DIM.y))
+
+        ### THEN DRAW ANTS AT THEIR CURRENT POSITIONS
+
+        # Draw other ants' positions
         if self.other_ants is not None:
             try:
                 for other_ant in self.other_ants[:,self.t]:
@@ -497,23 +518,12 @@ class AntDynamicsEnv(gym.Env):
             except TypeError:
                 print(other_ant)
                 logger.error("Cannot draw ant with provided coordinates.")
-
-        # Draw projected target trail
-        for pos in self.target_trail:
-            pygame.draw.rect(canvas, (220, 180, 180),
-                            (pos[0] - ANT_DIM.x/2.,
-                             pos[1] - ANT_DIM.y/2.,
-                             ANT_DIM.x, ANT_DIM.y))
         
         # Draw target ant
         pygame.draw.rect(canvas, (180, 0, 0),
                         (self.target_trail[-1][0] - ANT_DIM.x/2.,
                          self.target_trail[-1][1] - ANT_DIM.y/2.,
                          ANT_DIM.x, ANT_DIM.y))
-
-        # Draw ant trail
-        for pos in self.ant_trail:
-            pygame.draw.rect(canvas, (150, 150, 255), (*pos, ANT_DIM.x, ANT_DIM.y))
 
         # Draw ant last; to ensure visibility.
         pygame.draw.rect(canvas, (0, 0, 180),
