@@ -20,7 +20,7 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 VIDEO_FPS = 60     # Source data FPS (60Hz)
-SIM_FPS = 30.0    # Simulation environment FPS
+SIM_FPS = 30    # Simulation environment FPS
 
 INITIAL_RANDOM = 5
 
@@ -28,9 +28,7 @@ SCREEN_W = 900
 SCREEN_H = 900
 BOUNDARY_SCALE = 0.02
 
-
 vec2d = namedtuple('vec2d', ['x', 'y'])
-
 
 # Global parameters for agent control
 TIMESTEP = 2./SIM_FPS       # Not sure if this will be necessary, given the fixed FPS?
@@ -39,8 +37,8 @@ AGENT_SPEED = 10*1.75       # Taken from slimevolley, will need to adjust based 
 TURN_RATE = 65 * 2 * math.pi / 360 
 VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
-TRACK_TRAIL = 'all' # 'all', 'fade', 'none'
-FADE_DURATION = 15 # seconds
+TRACK_TRAIL = 'fade' # 'all', 'fade', 'none'
+FADE_DURATION = 5 # seconds
 
 # Helper functions
 def is_rectangle_in_circle(x, y, circle_center, circle_radius):
@@ -364,7 +362,9 @@ class AntDynamicsEnv(gym.Env):
             self.ant_trail.append(pos)
         if TRACK_TRAIL == 'fade':
             self.ant_trail.append(pos)
-            self.ant_trail = self.ant_trail[:FADE_DURATION * VIDEO_FPS]
+            trail_length = len(self.ant_trail)
+            if trail_length > FADE_DURATION * SIM_FPS:
+                self.ant_trail = self.ant_trail[trail_length - FADE_DURATION * SIM_FPS:]
         if TRACK_TRAIL == 'none':
             pass
 
