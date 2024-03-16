@@ -340,11 +340,19 @@ class AntDynamicsEnv(gym.Env):
             if np.isnan(np.array(trail_data[ant_index][start:start + trail_length])).any():
                 continue
             else:
-                x1 = int(trail_data.iloc[[start]][ant_index].x.iloc[0])
-                y1 = int(trail_data.iloc[[start]][ant_index].y.iloc[0])
-                x2 = int(trail_data.iloc[[start + trail_length]][ant_index].x.iloc[0])
-                y2 = int(trail_data.iloc[[start + trail_length]][ant_index].y.iloc[0])
+                x1 = trail_data.iloc[start][ant_index].x
+                y1 = trail_data.iloc[start][ant_index].y
+                x2 = trail_data.iloc[start + trail_length-1][ant_index].x
+                y2 = trail_data.iloc[start + trail_length-1][ant_index].y
+                # I THINK I CAN REMOVE THIS CHECK NOW THAT I HAVE FIXED THE ARRAY
+                # INDICES ABOVE
+                if np.isnan(np.array([x1, y1, x2, y2])).any():
+                    print("!! NaN ALERT !!")
+                    print(x1, y1, x2, y2)
+                    continue
+                x1, y1, x2, y2 = [int(x) for x in [x1, y1, x2, y2]]
                 dx, dy = x2-x1, y2-y1
+                # If this trail is too short to be used, continue the search.
                 if (np.sqrt(dx**2 + dy**2)) < threshold:
                     continue
                 s[0:trail_length] = trail_data[ant_index][start:start + trail_length]

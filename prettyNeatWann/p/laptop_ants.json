@@ -5,6 +5,7 @@
     "alg_nReps": 3,
     "prob_addConn": 0.25,
     "prob_addNode": 0.23,
+    "prob_initEnable": 0.7,
     "select_eliteRatio": 0.05,
     "select_tournSize": 4,
     "bestReps": 16
