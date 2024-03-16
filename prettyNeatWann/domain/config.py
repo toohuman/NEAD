@@ -221,6 +221,6 @@ ant_dynamics = Game(env_name='AntDynamics-v0',
       # Vision {forward, right, back, left}
       'V_f', 'V_r', 'V_b', 'V_l',
       # Outputs
-      'forward', 'backward', 'turn_left', 'turn_right', 'stop']
+      'forward', 'backward', 'turn_left', 'turn_right']
 )
 games['ant_dynamics'] = ant_dynamics

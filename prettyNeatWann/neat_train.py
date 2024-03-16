@@ -159,7 +159,7 @@ def batchMpiEval(pop, sameSeedForEachIndividual=True):
       if i < nJobs:
         workResult = np.empty(1, dtype='d')
         comm.Recv(workResult, source=iWork)
-        reward[i] = workResult
+        reward[i] = workResult[0]
       i+=1
   return reward
 

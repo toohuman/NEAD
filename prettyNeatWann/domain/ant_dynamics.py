@@ -9,7 +9,7 @@ import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.utils import colorize, seeding
 
-from data_generator import *
+from .data_generator import *
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -222,15 +222,11 @@ class Ant():
     def get_obs(self, others=None):
         if others is not None:
             self._detect_vision(self._detect_nearby_ants(others))
-        result = {
-            'x': self.pos.x, 'y': self.pos.y,
-            'speed': self.speed,
-            'theta': self.theta, 'theta_dot': self.theta_dot,
-            'V_f': self.V_f,
-            'V_r': self.V_r,
-            'V_b': self.V_b,
-            'V_l': self.V_l
-        }
+        result = [
+            self.pos.x, self.pos.y, self.speed,
+            np.cos(self.theta), np.sin(self.theta), self.theta_dot,
+            self.V_f, self.V_r, self.V_b, self.V_l
+        ]
         return result
 
 
@@ -309,7 +305,7 @@ class AntDynamicsEnv(gym.Env):
 
     def _get_ant_trails(self):
         type(self).ant_trail_data = load_data(
-            "../../../data/2023_2/",     
+            "../../data/2023_2/",     
             VIDEO_FPS / SIM_FPS,
             self.ant_arena
         )
@@ -324,7 +320,8 @@ class AntDynamicsEnv(gym.Env):
         """
         trail_length = int(trail_len)+1
         s = np.zeros((trail_length, 2), dtype=float)
-        num_ants = len(type(self).ant_trail_data.columns.levels[0])
+        trail_data = type(self).ant_trail_data
+        num_ants = len(trail_data.columns.levels[0])
         # If showing positions of other ants during the trail
         other_ants = None
         if others:
@@ -333,25 +330,33 @@ class AntDynamicsEnv(gym.Env):
                 dtype=float
             )
 
-        start = np.random.randint(len(type(self).ant_trail_data) - trail_length)
+        start = np.random.randint(len(trail_data) - trail_length)
         indices = list(np.random.permutation(num_ants))
         indices_set = set(indices)
+        threshold = 10
         contains_null = True
         while contains_null and len(indices) > 0:
             ant_index = indices.pop()
-            if np.isnan(np.array(type(self).ant_trail_data[ant_index][start:start + trail_length])).any():
+            if np.isnan(np.array(trail_data[ant_index][start:start + trail_length])).any():
                 continue
             else:
-                s[0:trail_length] = type(self).ant_trail_data[ant_index][start:start + trail_length]
+                x1 = int(trail_data.iloc[[start]][ant_index].x.iloc[0])
+                y1 = int(trail_data.iloc[[start]][ant_index].y.iloc[0])
+                x2 = int(trail_data.iloc[[start + trail_length]][ant_index].x.iloc[0])
+                y2 = int(trail_data.iloc[[start + trail_length]][ant_index].y.iloc[0])
+                dx, dy = x2-x1, y2-y1
+                if (np.sqrt(dx**2 + dy**2)) < threshold:
+                    continue
+                s[0:trail_length] = trail_data[ant_index][start:start + trail_length]
                 contains_null = False
                 indices_set.discard(ant_index)
         if others and not contains_null:
             trail_index = 0
             for other_ant_index in indices_set:
-                if np.isnan(np.array(type(self).ant_trail_data[other_ant_index][start:start + trail_length])).any():
+                if np.isnan(np.array(trail_data[other_ant_index][start:start + trail_length])).any():
                     np.resize(other_ants, (np.shape(other_ants)[1]-1, trail_length, 2))
                     continue
-                other_ants[trail_index][0:trail_length] = type(self).ant_trail_data[other_ant_index][start:start + trail_length]
+                other_ants[trail_index][0:trail_length] = trail_data[other_ant_index][start:start + trail_length]
                 trail_index += 1
 
         return Ant(s[0]), s, other_ants
@@ -359,7 +364,7 @@ class AntDynamicsEnv(gym.Env):
 
     def _get_starting_angle(self, trail):
         theta = 0
-        threshold = 2
+        threshold = 3
         time = 1
         while time != len(trail):
             dx, dy = trail[time] - trail[0]
@@ -398,7 +403,8 @@ class AntDynamicsEnv(gym.Env):
             
             # Calculate the area of the trapezoid and add it to the total area
             trapezoid_area = 0.5 * (b1 + b2) * h
-            total_area += trapezoid_area
+            # total_area += trapezoid_area
+            total_area += 1 - (trapezoid_area / (np.sqrt(1 + trapezoid_area**2)))
         
         return total_area
 
@@ -414,7 +420,7 @@ class AntDynamicsEnv(gym.Env):
             self.target_trail
         )
 
-        return reward
+        return reward * -1
 
     def get_observations(self, others=None):
         return self.ant.get_obs(others)
@@ -444,19 +450,7 @@ class AntDynamicsEnv(gym.Env):
             trail_len=TIME_LIMIT
         )
         self.ant.theta = self._get_starting_angle(self.target_trail)
-        self.state = self.get_observations(self.other_ants[:,self.t])
-        obs = [
-            # x, y position and speed
-            self.state['x'], self.state['y'], self.state['speed'],
-            # cos and sine of agent's angle theta
-            np.cos(self.state['theta']), np.sin(self.state['theta']),
-            self.state['theta_dot'],
-            # Vision (directional detection of other ants)
-            self.state['V_f'],
-            self.state['V_r'],
-            self.state['V_b'],
-            self.state['V_l']
-        ]
+        obs = self.get_observations(self.other_ants[:,self.t])
 
         if self.render_mode == 'human':
             self._render_frame()
@@ -493,7 +487,7 @@ class AntDynamicsEnv(gym.Env):
 
         reward = 0
         if done:
-            reward = self._reward_function() / TIME_LIMIT
+            reward = self._reward_function()
 
         return obs, reward, done, info
 

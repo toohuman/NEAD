@@ -163,3 +163,5 @@ nohup.out
 .vscode
 .vscode/
 .DS_Store
+
+log/
