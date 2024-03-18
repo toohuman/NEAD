@@ -33,7 +33,7 @@ vec2d = namedtuple('vec2d', ['x', 'y'])
 # Global parameters for agent control
 TIMESTEP = 2./SIM_FPS       # Not sure if this will be necessary, given the fixed FPS?
 # TIME_LIMIT = SIM_FPS * 60   # 60 seconds
-TIME_LIMIT = SIM_FPS * 20   # 60 seconds
+TIME_LIMIT = SIM_FPS * 15   # 60 seconds
 
 ANT_DIM = vec2d(5, 5)
 AGENT_SPEED = 10*1.75       # Taken from slimevolley, will need to adjust based on feeling
@@ -193,10 +193,10 @@ class Ant():
         turn_left  = False
         turn_right = False
 
-        if action[0] > 0.75: forward    = True
-        if action[1] > 0.75: backward   = True
-        if action[2] > 0.75: turn_left  = True
-        if action[3] > 0.75: turn_right = True
+        if action[0] > 0: forward    = True
+        if action[1] > 0: backward   = True
+        if action[2] > 0: turn_left  = True
+        if action[3] > 0: turn_right = True
 
         self.desired_speed = 0
         self.desired_turn_speed = 0
@@ -390,6 +390,8 @@ class AntDynamicsEnv(gym.Env):
         Returns:
         - total_area: The total area between the two paths.
         """
+        path1 = path1[::SIM_FPS]
+        path2 = path2[::SIM_FPS]
         total_area = 0.0
         
         # Assuming both paths have the same number of points
@@ -403,8 +405,8 @@ class AntDynamicsEnv(gym.Env):
             
             # Calculate the area of the trapezoid and add it to the total area
             trapezoid_area = 0.5 * (b1 + b2) * h
-            # total_area += trapezoid_area
-            total_area += 1 - (trapezoid_area / (np.sqrt(1 + trapezoid_area**2)))
+            total_area += trapezoid_area
+            # total_area += 1 - (trapezoid_area / (np.sqrt(1 + trapezoid_area**2)))
         
         return total_area
 
@@ -420,7 +422,7 @@ class AntDynamicsEnv(gym.Env):
             self.target_trail
         )
 
-        return reward * -1
+        return reward# * -1
 
     def get_observations(self, others=None):
         return self.ant.get_obs(others)
