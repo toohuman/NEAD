@@ -500,10 +500,12 @@ class AntDynamicsEnv(gym.Env):
         return obs, reward, done, info
 
 
-    def render(self):
-        if self.render_mode == 'rgb_array':
-            return self._render_frame()
-
+    def render(self, mode=None):
+        if mode is not None:
+            self.render_mode = mode
+        # if self.render_mode == 'rgb_array':
+        return self._render_frame()
+        
 
     def _render_frame(self):
         if self.window is None and self.render_mode == 'human':
@@ -516,6 +518,7 @@ class AntDynamicsEnv(gym.Env):
 
         if self.clock is None and self.render_mode == 'human':
             self.clock = pygame.time.Clock()
+            return
 
         canvas = pygame.Surface((SCREEN_W, SCREEN_H))
         canvas.fill((150, 150, 170))
