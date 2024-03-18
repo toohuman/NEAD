@@ -23,7 +23,7 @@ def main(argv):
   task = GymTask(games[hyp['task']], nReps=hyp['alg_nReps'])
 
   # Bullet needs some extra help getting started
-  if hyp['task'].startswith("bullet"):
+  if hyp['task'].startswith("bullet") or hyp['task'].startswith("ant"):
     task.env.render("human")
 
   # Import and Test network

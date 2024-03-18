@@ -164,18 +164,10 @@ class Ant():
         Move an agent from its current position (x, y) according to desired_speed
         and angle theta using matrix multiplication.
         """
-        # Define the unit vector with angle theta.
-        # unit_direction = [np.cos(self.theta), np.sin(self.theta)]
-        # unit_direction /= np.linalg.norm(unit_direction)
-        # desired_pos = np.add(
-        #     np.array(self.pos),
-        #     np.array(unit_direction) * self.desired_speed * TIMESTEP
-        # )
         # Calculate the desired direction of travel (rotate to angle theta)
         direction = np.array([np.cos(self.theta), np.sin(self.theta)]) * self.desired_speed * TIMESTEP
         # Set the desired position based on direction and speed relative to timestep
         desired_pos = np.add(np.array(self.pos), direction)
-
         # If leaving the cirle, push agent back into circle.
         if is_rectangle_in_circle(desired_pos[0], desired_pos[1], arena[0], arena[1]):
             self.pos = vec2d(desired_pos[0], desired_pos[1])
