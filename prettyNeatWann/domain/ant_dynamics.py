@@ -9,7 +9,7 @@ import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.utils import colorize, seeding
 
-from .data_generator import *
+from data_generator import *
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -31,13 +31,13 @@ BOUNDARY_SCALE = 0.02
 vec2d = namedtuple('vec2d', ['x', 'y'])
 
 # Global parameters for agent control
-TIMESTEP = 2./SIM_FPS       # Not sure if this will be necessary, given the fixed FPS?
+TIMESTEP = 1./SIM_FPS       # Not sure if this will be necessary, given the fixed FPS?
 # TIME_LIMIT = SIM_FPS * 60   # 60 seconds
 TIME_LIMIT = SIM_FPS * 15   # 60 seconds
 
 ANT_DIM = vec2d(5, 5)
-AGENT_SPEED = 10*1.75       # Taken from slimevolley, will need to adjust based on feeling
-TURN_RATE = 90 * 2 * math.pi / 360 
+AGENT_SPEED = 10*3.25       # Taken from slimevolley, will need to adjust based on feeling
+TURN_RATE = 120 * 2 * math.pi / 360 
 VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
 REWARD_TYPE = 'action'
@@ -254,7 +254,7 @@ class AntDynamicsEnv(gym.Env):
         self.ant_trail = None
 
         self.target_trail = None
-        self.target_polarity = None
+        self.target_data = None
 
         self.other_ants = None
 
@@ -301,7 +301,7 @@ class AntDynamicsEnv(gym.Env):
 
     def _get_ant_trails(self):
         type(self).ant_trail_data = load_data(
-            "../../data/2023_2/",     
+            "../../../data/2023_2/",     
             VIDEO_FPS / SIM_FPS,
             self.ant_arena
         )
@@ -314,7 +314,7 @@ class AntDynamicsEnv(gym.Env):
         also provide positions of other ants within a given radius for feeding
         into the ant's internal state.
         """
-        trail_length = int(trail_len)+1
+        trail_length = int(trail_len)+2
         s = np.zeros((trail_length, 2), dtype=float)
         trail_data = type(self).ant_trail_data
         num_ants = len(trail_data.columns.levels[0])
@@ -359,7 +359,7 @@ class AntDynamicsEnv(gym.Env):
         return Ant(s[0]), s, other_ants
 
 
-    def _get_trajectory_angle(self, trail, start_time, interval=False):
+    def _get_angle_from_trajectory(self, trail, start_time, interval=False):
         theta = -1
         threshold = 3
         time = start_time + 1
@@ -376,26 +376,30 @@ class AntDynamicsEnv(gym.Env):
         else: return theta
 
 
-    def _calculate_polarity(self, trail):
-        target_polarity = []
+    def _calculate_target_data(self, trail):
+        target_data = []
         time = 0
         prev_polarity = -1
         # Get the polarity time series based on movement of the ant
         while time != len(trail):
-            polarity, interval = self._get_trajectory_angle(trail, time, interval=True)
+            polarity, interval = self._get_angle_from_trajectory(trail, time, interval=True)
             if polarity >= 0:
                 prev_polarity = polarity
                 for i in range(interval):
-                    target_polarity.append(polarity)
+                    target_data.append(polarity)
             else:
                 for i in range(interval):
-                    target_polarity.append(prev_polarity)
+                    target_data.append(prev_polarity)
             time += interval
         # Now that we know movement polarity, invert any sudden polarity changes
         # due to moving backwards. (I think this is a valid assumption & correction.)
-        # for p in range(1, len(target_polarity)):
-        #     if target_polarity
-        return target_polarity
+        for p in range(1, len(target_data)):
+            # print("1:", target_data[p], target_data[p-1])
+            # print("2:", target_data[p] - target_data[p-1], abs(target_data[p] - target_data[p-1]) % (2 * np.pi))
+            if abs(target_data[p] - target_data[p-1]) % (2 * np.pi) > np.pi/2:
+                # print("old theta:", target_data)
+                target_data[p] = abs(target_data[p] - target_data[p-1]) % (2 * np.pi) + np.pi
+        return target_data
 
 
     def _calculate_area_between_trails(self, trail1, trail2):
@@ -459,9 +463,9 @@ class AntDynamicsEnv(gym.Env):
 
             return reward * -1
         elif REWARD_TYPE == 'action':
-            return self._compare_actions(actions,
+            return np.mean(self._compare_actions(actions,
                                          self.target_trail,
-                                         self.t)
+                                         self.t))
 
     def get_observations(self, others=None):
         return np.sum(self.ant.get_obs(others))
@@ -494,8 +498,8 @@ class AntDynamicsEnv(gym.Env):
             others=True,
             trail_len=TIME_LIMIT
         )
-        self.target_polarity = self._calculate_polarity(self.target_trail)
-        self.ant.theta = self._get_trajectory_angle(self.target_trail,
+        self.target_data = self._calculate_target_data(self.target_trail)
+        self.ant.theta = self._get_angle_from_trajectory(self.target_trail,
                                                     self.t)
         obs = self.get_observations(self.other_ants[:,self.t])
 
