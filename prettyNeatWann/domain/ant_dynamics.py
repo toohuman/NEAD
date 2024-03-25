@@ -40,6 +40,7 @@ AGENT_SPEED = 10*1.75       # Taken from slimevolley, will need to adjust based 
 TURN_RATE = 90 * 2 * math.pi / 360 
 VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
+REWARD_TYPE = 'action'
 TRACK_TRAIL = 'all' # 'all', 'fade', 'none'
 FADE_DURATION = 5 # seconds
 
@@ -193,10 +194,10 @@ class Ant():
         turn_left  = False
         turn_right = False
 
-        if action[0] > 0: forward    = True
-        if action[1] > 0: backward   = True
-        if action[2] > 0: turn_left  = True
-        if action[3] > 0: turn_right = True
+        if action[0] > 0.25: forward    = True
+        if action[1] > 0.25: backward   = True
+        if action[2] > 0.25: turn_left  = True
+        if action[3] > 0.25: turn_right = True
 
         self.desired_speed = 0
         self.desired_turn_speed = 0
@@ -210,6 +211,7 @@ class Ant():
         if (turn_right and (not turn_left)):
             self.desired_turn_speed = TURN_RATE
 
+        return [int(x) for x in [forward, backward, turn_left, turn_right]]
 
     def get_obs(self, others=None):
         if others is not None:
@@ -251,6 +253,7 @@ class AntDynamicsEnv(gym.Env):
         self.ant_trail = None
 
         self.target_trail = None
+        self.target_polarity = None
 
         self.other_ants = None
 
@@ -362,70 +365,106 @@ class AntDynamicsEnv(gym.Env):
         return Ant(s[0]), s, other_ants
 
 
-    def _get_starting_angle(self, trail):
+    def _get_trajectory_angle(self, trail, start_time, interval=False):
         theta = 0
         threshold = 3
-        time = 1
+        time = start_time + 1
         while time != len(trail):
-            dx, dy = trail[time] - trail[0]
+            try:
+                dx, dy = trail[time] - trail[start_time]
+            except IndexError:
+                break
             if threshold < (np.sqrt(dx**2 + dy**2)):
                 theta = np.arctan2(dy, dx)
                 break
             time += 1
-        return theta
+        if interval:
+            return theta, (time - start_time)
+        else:
+            return theta
 
 
-    def _track_trail(self, pos: vec2d):
-        self.ant_trail.append(pos)
+    def _calculate_polarity(self, trail):
+        target_polarity = []
+        time = 0
+        while time != len(trail):
+            polarity, interval = self._get_trajectory_angle(trail, time, interval=True)
+            for i in range(time + interval):
+                target_polarity[i] = polarity
+        return target_polarity
 
 
-    def _calculate_area_between_trails(self, path1, path2):
+    def _calculate_area_between_trails(self, trail1, trail2):
         """
         Calculate the area between two trajectories.
 
         Parameters:
-        - path1: List of (x, y) tuples for the first path.
-        - path2: List of (x, y) tuples for the second path.
+        - trail1: List of (x, y) tuples for the first trail.
+        - trail2: List of (x, y) tuples for the second trail.
 
         Returns:
-        - total_area: The total area between the two paths.
+        - total_area: The total area between the two trails.
         """
-        path1 = path1[::SIM_FPS]
-        path2 = path2[::SIM_FPS]
         total_area = 0.0
         
-        # Assuming both paths have the same number of points
-        for i in range(1, len(path1)):
+        # Assuming both trails have the same number of points
+        for i in range(1, len(trail1)):
             # Calculate the height (h) as the difference in x between successive points
-            h = abs(path1[i][0] - path1[i-1][0])
+            h = abs(trail1[i][0] - trail1[i-1][0])
             
             # Calculate the lengths of the parallel sides (b1 and b2)
-            b1 = abs(path1[i-1][1] - path2[i-1][1])
-            b2 = abs(path1[i][1] - path2[i][1])
+            b1 = abs(trail1[i-1][1] - trail2[i-1][1])
+            b2 = abs(trail1[i][1] - trail2[i][1])
             
             # Calculate the area of the trapezoid and add it to the total area
             trapezoid_area = 0.5 * (b1 + b2) * h
-            total_area += trapezoid_area
-            # total_area += 1 - (trapezoid_area / (np.sqrt(1 + trapezoid_area**2)))
+            # total_area += trapezoid_area
+            total_area += 1 - (trapezoid_area / (np.sqrt(1 + trapezoid_area**2)))
         
         return total_area
 
 
-    def _reward_function(self):
+    def _compare_actions(self, actions, trail, time):
+        """
+        Compare the agent's current action with the historical action of the agent
+        it is attemtping to shadow.
+        """
+        forward, backward, turn_left, turn_right = actions
+        # Calculate the direction of movement required
+        delta_x = trail[time+1] - trail[time]
+        delta_y = trail[time+1] - trail[time]
+        # Target direction in radians
+        target_theta = math.atan2(delta_y, delta_x)
+        # Calculate the smallest angle difference (target_theta - current_theta)
+        angle_diff = (target_theta - self.ant.theta + math.pi) % (2 * math.pi) - math.pi
+
+
+        return [forward, backward, turn_left, turn_right]
+
+
+    def _reward_function(self, actions=None):
         """
         Calculate the reward given the focal ant and the accuracy of its behaviour
         over the trial, given the source data as the ground truth.
         """
+        if REWARD_TYPE == 'trail':
+            reward = self._calculate_area_between_trails(
+                self.ant_trail,
+                self.target_trail
+            )
 
-        reward = self._calculate_area_between_trails(
-            self.ant_trail,
-            self.target_trail
-        )
-
-        return reward# * -1
+            return reward * -1
+        elif REWARD_TYPE == 'action':
+            return self._compare_actions(actions,
+                                         self.target_trail,
+                                         self.t)
 
     def get_observations(self, others=None):
-        return self.ant.get_obs(others)
+        return np.sum(self.ant.get_obs(others))
+
+
+    def _track_trail(self, pos: vec2d):
+        self.ant_trail.append(pos)
 
 
     def _destroy(self):
@@ -451,7 +490,9 @@ class AntDynamicsEnv(gym.Env):
             others=True,
             trail_len=TIME_LIMIT
         )
-        self.ant.theta = self._get_starting_angle(self.target_trail)
+        self.target_polarity = self._calculate_polarity(self.target_trail)
+        self.ant.theta = self._get_trajectory_angle(self.target_trail,
+                                                    self.t)
         obs = self.get_observations(self.other_ants[:,self.t])
 
         if self.render_mode == 'human':
@@ -477,7 +518,7 @@ class AntDynamicsEnv(gym.Env):
         # Pygame controls and resources if render_mode == 'human'
         if self.render_mode == "human": self._render_frame()
 
-        self.ant.set_action(action)
+        action_set = self.ant.set_action(action)
         self.ant.update(self.ant_arena)
         obs = self.get_observations(self.other_ants[:,self.t])
         self._track_trail(self.ant.pos)
@@ -488,8 +529,10 @@ class AntDynamicsEnv(gym.Env):
         info = {}
 
         reward = 0
-        if done:
+        if done and REWARD_TYPE == 'trail':
             reward = self._reward_function()
+        if REWARD_TYPE == 'action':
+            reward = self._reward_function(action_set)
 
         return obs, reward, done, info
 
@@ -591,7 +634,6 @@ class AntDynamicsEnv(gym.Env):
             return np.transpose(
                 np.array(pygame.surfarray.pixels3d(canvas)), axes=(1,0,2)
             )
-
 
 
 if __name__ == "__main__":
