@@ -42,6 +42,7 @@ VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
 REWARD_TYPE = 'action'
 TRACK_TRAIL = 'all' # 'all', 'fade', 'none'
+MOVEMENT_THRESHOLD = 10
 FADE_DURATION = 5 # seconds
 
 # Helper functions
@@ -328,7 +329,6 @@ class AntDynamicsEnv(gym.Env):
         start = np.random.randint(len(trail_data) - trail_length)
         indices = list(np.random.permutation(num_ants))
         indices_set = set(indices)
-        threshold = 10
         contains_null = True
         while contains_null and len(indices) > 0:
             ant_index = indices.pop()
@@ -339,16 +339,10 @@ class AntDynamicsEnv(gym.Env):
                 y1 = trail_data.iloc[start][ant_index].y
                 x2 = trail_data.iloc[start + trail_length-1][ant_index].x
                 y2 = trail_data.iloc[start + trail_length-1][ant_index].y
-                # I THINK I CAN REMOVE THIS CHECK NOW THAT I HAVE FIXED THE ARRAY
-                # INDICES ABOVE
-                if np.isnan(np.array([x1, y1, x2, y2])).any():
-                    print("!! NaN ALERT !!")
-                    print(x1, y1, x2, y2)
-                    continue
                 x1, y1, x2, y2 = [int(x) for x in [x1, y1, x2, y2]]
                 dx, dy = x2-x1, y2-y1
                 # If this trail is too short to be used, continue the search.
-                if (np.sqrt(dx**2 + dy**2)) < threshold:
+                if (np.sqrt(dx**2 + dy**2)) < MOVEMENT_THRESHOLD:
                     continue
                 s[0:trail_length] = trail_data[ant_index][start:start + trail_length]
                 contains_null = False
@@ -366,31 +360,41 @@ class AntDynamicsEnv(gym.Env):
 
 
     def _get_trajectory_angle(self, trail, start_time, interval=False):
-        theta = 0
+        theta = -1
         threshold = 3
         time = start_time + 1
-        while time != len(trail):
+        while time != len(trail) and theta < 0:
             try:
                 dx, dy = trail[time] - trail[start_time]
             except IndexError:
                 break
             if threshold < (np.sqrt(dx**2 + dy**2)):
-                theta = np.arctan2(dy, dx)
-                break
+                theta = math.atan2(dy, dx) % (2 * np.pi)
             time += 1
-        if interval:
-            return theta, (time - start_time)
-        else:
-            return theta
+
+        if interval: return theta, (time - start_time)
+        else: return theta
 
 
     def _calculate_polarity(self, trail):
         target_polarity = []
         time = 0
+        prev_polarity = -1
+        # Get the polarity time series based on movement of the ant
         while time != len(trail):
             polarity, interval = self._get_trajectory_angle(trail, time, interval=True)
-            for i in range(time + interval):
-                target_polarity[i] = polarity
+            if polarity >= 0:
+                prev_polarity = polarity
+                for i in range(interval):
+                    target_polarity.append(polarity)
+            else:
+                for i in range(interval):
+                    target_polarity.append(prev_polarity)
+            time += interval
+        # Now that we know movement polarity, invert any sudden polarity changes
+        # due to moving backwards. (I think this is a valid assumption & correction.)
+        # for p in range(1, len(target_polarity)):
+        #     if target_polarity
         return target_polarity
 
 
@@ -431,10 +435,10 @@ class AntDynamicsEnv(gym.Env):
         """
         forward, backward, turn_left, turn_right = actions
         # Calculate the direction of movement required
-        delta_x = trail[time+1] - trail[time]
-        delta_y = trail[time+1] - trail[time]
+        dx = trail[time+1][0] - trail[time][0]
+        dy = trail[time+1][1] - trail[time][1]
         # Target direction in radians
-        target_theta = math.atan2(delta_y, delta_x)
+        target_theta = math.atan2(dy, dx)
         # Calculate the smallest angle difference (target_theta - current_theta)
         angle_diff = (target_theta - self.ant.theta + math.pi) % (2 * math.pi) - math.pi
 
