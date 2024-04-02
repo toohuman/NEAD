@@ -37,7 +37,7 @@ TIME_LIMIT = SIM_FPS * 15   # 60 seconds
 
 ANT_DIM = vec2d(5, 5)
 AGENT_SPEED = 10*3.25       # Taken from slimevolley, will need to adjust based on feeling
-TURN_RATE = 120 * 2 * math.pi / 360 
+TURN_RATE = 140 * 2 * math.pi / 360 
 VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
 REWARD_TYPE = 'action'
