@@ -20,6 +20,9 @@ formatter = logging.Formatter('%(asctime)s [%(levelname)s] In %(pathname)s:%(lin
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
+DATA_DIRECTORY = "../../../data/2023_2/"    # Relative path from the program being called
+# DATA_DIRECTORY = "../../data/2023_2/"    # For the relative path when training
+
 VIDEO_FPS = 60     # Source data FPS (60Hz)
 SIM_FPS = 30    # Simulation environment FPS
 
@@ -38,8 +41,10 @@ TIME_LIMIT = SIM_FPS * 30   # 60 seconds
 
 ANT_DIM = vec2d(5, 5)
 AGENT_SPEED = 15*3.25       # Taken from slimevolley, will need to adjust based on feeling
-TURN_RATE = 140 * 2 * math.pi / 360 
+TURN_RATE = 140 * 2 * math.pi / 360
 VISION_RANGE = 100  # No idea what is a reasonable value for this.
+
+DRAW_ANT_VISION = True
 
 REWARD_TYPE = 'action'
 TRACK_TRAIL = 'all' # 'all', 'fade', 'none'
@@ -445,7 +450,7 @@ class AntDynamicsEnv(gym.Env):
 
     def _get_ant_trails(self):
         type(self).ant_trail_data = load_data(
-            "../../../data/2023_2/",     
+            DATA_DIRECTORY,
             VIDEO_FPS / SIM_FPS,
             self.ant_arena
         )
@@ -720,6 +725,48 @@ class AntDynamicsEnv(gym.Env):
             self.ant_arena[1]
         )
 
+        if DRAW_ANT_VISION:
+            pygame.draw.circle(
+                canvas,
+                (197, 197, 203),
+                (self.ant.pos.x,
+                self.ant.pos.y),
+                VISION_RANGE
+            )
+            arc_definitions = [
+                # Front arc: Directly in front of the agent
+                ((-math.pi / 4 - self.ant.theta, math.pi / 4 - self.ant.theta), (180, 180, 190)),
+                # Right arc: To the right of the agent
+                ((math.pi / 4 - self.ant.theta, 3 * math.pi / 4 - self.ant.theta), (180, 180, 190)),
+                # Back arc: Directly behind the agent
+                ((3 * math.pi / 4 - self.ant.theta, 5 * math.pi / 4 - self.ant.theta), (180, 180, 190)),
+                # Left arc: To the left of the agent
+                ((5 * math.pi / 4 - self.ant.theta, 7 * math.pi / 4 - self.ant.theta), (180, 180, 190)),
+            ]
+            for (start_offset, stop_offset), colour in arc_definitions:
+                # Calculate start and stop angles, normalized to 0 to 2*pi
+                start_angle = start_offset % (2 * math.pi)
+                stop_angle = stop_offset % (2 * math.pi)
+                # Ensuring clockwise drawing by adjusting for Pygame's drawing behavior
+                if start_angle > stop_angle:
+                    stop_angle += 2 * math.pi
+                pygame.draw.arc(
+                    canvas,
+                    colour,
+                    (self.ant.pos.x - VISION_RANGE,
+                     self.ant.pos.y - VISION_RANGE,
+                     VISION_RANGE*2, VISION_RANGE*2),
+                    start_angle, stop_angle, 1
+                )
+                
+                x_end = self.ant.pos.x - VISION_RANGE * math.cos(start_angle)
+                y_end = self.ant.pos.y + VISION_RANGE * math.sin(start_angle)
+                pygame.draw.line(canvas, colour, (self.ant.pos.x, self.ant.pos.y), (x_end, y_end), 1)
+                # x_end = self.ant.pos.x - VISION_RANGE * math.cos(stop_angle)
+                # y_end = self.ant.pos.y + VISION_RANGE * math.sin(stop_angle)
+                # pygame.draw.line(canvas, colour, (self.ant.pos.x, self.ant.pos.y), (x_end, y_end), 1)
+
+
         ### DRAW TRAILS FIRST 
 
         # Draw projected target trail
@@ -768,11 +815,18 @@ class AntDynamicsEnv(gym.Env):
                          self.target_trail[-1][1] - ANT_DIM.y/2.,
                          ANT_DIM.x, ANT_DIM.y))
 
-        # Draw ant last; to ensure visibility.
+        # Draw agent last; to ensure visibility.
         pygame.draw.rect(canvas, (0, 0, 180),
                         (self.ant.pos.x - ANT_DIM.x/2.,
                          self.ant.pos.y - ANT_DIM.y/2.,
                          ANT_DIM.x, ANT_DIM.y))
+        pygame.draw.line(canvas, (0, 0, 180),
+            (self.ant.pos.x, self.ant.pos.y),
+            np.add(
+                np.array(self.ant.pos),
+                np.array([np.cos(self.ant.theta), np.sin(self.ant.theta)]) * ANT_DIM.x * 3
+            )
+        )
 
 
         if self.render_mode == 'human':
