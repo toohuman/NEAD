@@ -20,7 +20,7 @@ formatter = logging.Formatter('%(asctime)s [%(levelname)s] In %(pathname)s:%(lin
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-DATA_DIRECTORY = "../../../data/2023_2/"    # Relative path from the program being called
+DATA_DIRECTORY = "../../data/2023_2/"    # Relative path from the program being called
 # DATA_DIRECTORY = "../../data/2023_2/"    # For the relative path when training
 
 VIDEO_FPS = 60     # Source data FPS (60Hz)
@@ -44,9 +44,9 @@ AGENT_SPEED = 15*3.25       # Taken from slimevolley, will need to adjust based 
 TURN_RATE = 140 * 2 * math.pi / 360
 VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
-DRAW_ANT_VISION = True
+DRAW_ANT_VISION = False
 
-REWARD_TYPE = 'action'
+REWARD_TYPE = 'trail'
 TRACK_TRAIL = 'all' # 'all', 'fade', 'none'
 MOVEMENT_THRESHOLD = 10
 FADE_DURATION = 5 # seconds
