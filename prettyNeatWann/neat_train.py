@@ -5,7 +5,7 @@ import math
 import argparse
 import subprocess
 import numpy as np
-np.set_printoptions(precision=2, linewidth=160) 
+np.set_printoptions(precision=2, linewidth=160)
 
 # MPI
 from mpi4py import MPI
@@ -18,17 +18,17 @@ from domain import *   # Task environments
 
 
 # -- Run NEAT ------------------------------------------------------------ -- #
-def master(): 
+def master():
   """Main NEAT optimization script
   """
   global fileName, hyp
   data = NeatDataGatherer(fileName, hyp)
   alg  = Neat(hyp)
 
-  for gen in range(hyp['maxGen']):        
-    pop = alg.ask()            # Get newly evolved individuals from NEAT  
+  for gen in range(hyp['maxGen']):
+    pop = alg.ask()            # Get newly evolved individuals from NEAT
     reward = batchMpiEval(pop)  # Send pop to be evaluated by workers
-    alg.tell(reward)           # Send fitness to NEAT    
+    alg.tell(reward)           # Send fitness to NEAT
 
     data = gatherData(data,alg,gen,hyp)
     print(gen, '\t - \t', data.display())
@@ -45,7 +45,7 @@ def gatherData(data,alg,gen,hyp,savePop=False):
   Args:
     data       - (DataGatherer)  - collected run data
     alg        - (Neat)          - neat algorithm container
-      .pop     - [Ind]           - list of individuals in population    
+      .pop     - [Ind]           - list of individuals in population
       .species - (Species)       - current species
     gen        - (ind)           - current generation
     hyp        - (dict)          - algorithm hyperparameters
@@ -59,7 +59,7 @@ def gatherData(data,alg,gen,hyp,savePop=False):
     data = checkBest(data)
     data.save(gen)
 
-  if savePop: # Get a sample pop to play with in notebooks    
+  if savePop: # Get a sample pop to play with in notebooks
     global fileName
     pref = 'log/' + fileName
     import pickle
@@ -88,7 +88,7 @@ def checkBest(data):
     rep = np.tile(data.best[-1], bestReps)
     fitVector = batchMpiEval(rep, sameSeedForEachIndividual=False)
     trueFit = np.mean(fitVector)
-    if trueFit > data.best[-2].fitness:  # Actually better!      
+    if trueFit > data.best[-2].fitness:  # Actually better!
       data.best[-1].fitness = trueFit
       data.fit_top[-1]      = trueFit
       data.bestFitVec = fitVector
@@ -107,7 +107,7 @@ def batchMpiEval(pop, sameSeedForEachIndividual=True):
   Args:
     pop - [Ind] - list of individuals
       .wMat - (np_array) - weight matrix of network
-              [N X N] 
+              [N X N]
       .aVec - (np_array) - activation function of each node
               [N X 1]
 
@@ -146,13 +146,13 @@ def batchMpiEval(pop, sameSeedForEachIndividual=True):
         if sameSeedForEachIndividual is False:
           comm.send(seed.item(i), dest=(iWork)+1, tag=5)
         else:
-          comm.send(  seed, dest=(iWork)+1, tag=5)  
+          comm.send(  seed, dest=(iWork)+1, tag=5)
 
       else: # message size of 0 is signal to shutdown workers
         n_wVec = 0
         comm.send(n_wVec,  dest=(iWork)+1)
-      i = i+1 
-  
+      i = i+1
+
     # Get fitness values back for that batch
     i -= nSlave
     for iWork in range(1,nSlave+1):
@@ -164,13 +164,13 @@ def batchMpiEval(pop, sameSeedForEachIndividual=True):
   return reward
 
 def slave():
-  """Evaluation process: evaluates networks sent from master process. 
+  """Evaluation process: evaluates networks sent from master process.
 
   PseudoArgs (recieved from master):
     wVec   - (np_array) - weight matrix as a flattened vector
              [1 X N**2]
     n_wVec - (int)      - length of weight vector (N**2)
-    aVec   - (np_array) - activation function of each node 
+    aVec   - (np_array) - activation function of each node
              [1 X N]    - stored as ints, see applyAct in ann.py
     n_aVec - (int)      - length of activation vector (N)
     seed   - (int)      - random seed (for consistency across workers)
@@ -178,7 +178,7 @@ def slave():
   PseudoReturn (sent to master):
     result - (float)    - fitness value of network
   """
-  global hyp  
+  global hyp
   task = GymTask(games[hyp['task']], nReps=hyp['alg_nReps'])
 
   # Evaluate any weight vectors sent this way
@@ -223,8 +223,8 @@ def mpi_fork(n):
       OMP_NUM_THREADS="1",
       IN_MPI="1"
     )
-    print( ["mpirun", "-np", str(n), sys.executable] + sys.argv)
-    subprocess.check_call(["mpirun", "-np", str(n), sys.executable] +['-u']+ sys.argv, env=env)
+    print( ["mpirun", "-np", str(n), "--oversubscribe", sys.executable] + sys.argv)
+    subprocess.check_call(["mpirun", "-np", str(n), "--oversubscribe", sys.executable] +['-u']+ sys.argv, env=env)
     return "parent"
   else:
     global nWorker, rank
@@ -257,7 +257,7 @@ def main(argv):
 if __name__ == "__main__":
   ''' Parse input and launch '''
   parser = argparse.ArgumentParser(description=('Evolve NEAT networks'))
-  
+
   parser.add_argument('-d', '--default', type=str,\
    help='default hyperparameter file', default='p/default_neat.json')
 
@@ -266,7 +266,7 @@ if __name__ == "__main__":
 
   parser.add_argument('-o', '--outPrefix', type=str,\
    help='file name for result output', default='test')
-  
+
   parser.add_argument('-n', '--num_worker', type=int,\
    help='number of cores to use', default=2)
 
@@ -276,8 +276,8 @@ if __name__ == "__main__":
   # Use MPI if parallel
   if "parent" == mpi_fork(args.num_worker+1): os._exit(0)
 
-  main(args)                              
-  
+  main(args)
+
 
 
 

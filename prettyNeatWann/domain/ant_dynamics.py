@@ -20,7 +20,7 @@ formatter = logging.Formatter('%(asctime)s [%(levelname)s] In %(pathname)s:%(lin
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-DATA_DIRECTORY = "../../data/2023_2/"    # Relative path from the program being called
+DATA_DIRECTORY = "../../../data/2023_2/"    # Relative path from the program being called
 # DATA_DIRECTORY = "../../data/2023_2/"    # For the relative path when training
 
 VIDEO_FPS = 60     # Source data FPS (60Hz)
@@ -44,9 +44,9 @@ AGENT_SPEED = 15*3.25       # Taken from slimevolley, will need to adjust based 
 TURN_RATE = 140 * 2 * math.pi / 360
 VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
-DRAW_ANT_VISION = False
+DRAW_ANT_VISION = True
 
-REWARD_TYPE = 'trail'
+REWARD_TYPE = 'action'
 TRACK_TRAIL = 'all' # 'all', 'fade', 'none'
 MOVEMENT_THRESHOLD = 10
 FADE_DURATION = 5 # seconds
@@ -332,7 +332,7 @@ class Ant():
         #         d_theta = np.pi / 2 - self.desired_turn_speed
         #     elif (self.theta < angle_to_center) or (self.theta >= angle_to_center - np.pi):
         #         d_theta = -np.pi / 2 + self.desired_turn_speed
-                
+
         #     theta = self.theta + d_theta * TIMESTEP
         #     theta = theta % (2 * np.pi)
         #     self.theta = theta
@@ -563,21 +563,21 @@ class AntDynamicsEnv(gym.Env):
         - total_area: The total area between the two trails.
         """
         total_area = 0.0
-        
+
         # Assuming both trails have the same number of points
         for i in range(1, len(trail1)):
             # Calculate the height (h) as the difference in x between successive points
             h = abs(trail1[i][0] - trail1[i-1][0])
-            
+
             # Calculate the lengths of the parallel sides (b1 and b2)
             b1 = abs(trail1[i-1][1] - trail2[i-1][1])
             b2 = abs(trail1[i][1] - trail2[i][1])
-            
+
             # Calculate the area of the trapezoid and add it to the total area
             trapezoid_area = 0.5 * (b1 + b2) * h
             # total_area += trapezoid_area
             total_area += 1 - (trapezoid_area / (np.sqrt(1 + trapezoid_area**2)))
-        
+
         return total_area
 
 
@@ -679,7 +679,7 @@ class AntDynamicsEnv(gym.Env):
         self.ant.update(self.ant_arena)
         obs = self.get_observations(self.other_ants[:,self.t])
         self._track_trail(self.ant.pos)
-        
+
         if self.t >= self.t_limit:
             done = True
 
@@ -699,7 +699,7 @@ class AntDynamicsEnv(gym.Env):
             self.render_mode = mode
         # if self.render_mode == 'rgb_array':
         return self._render_frame()
-        
+
 
     def _render_frame(self):
         if self.window is None and self.render_mode == 'human':
@@ -758,7 +758,7 @@ class AntDynamicsEnv(gym.Env):
                      VISION_RANGE*2, VISION_RANGE*2),
                     start_angle, stop_angle, 1
                 )
-                
+
                 x_end = self.ant.pos.x - VISION_RANGE * math.cos(start_angle)
                 y_end = self.ant.pos.y + VISION_RANGE * math.sin(start_angle)
                 pygame.draw.line(canvas, colour, (self.ant.pos.x, self.ant.pos.y), (x_end, y_end), 1)
@@ -767,7 +767,7 @@ class AntDynamicsEnv(gym.Env):
                 # pygame.draw.line(canvas, colour, (self.ant.pos.x, self.ant.pos.y), (x_end, y_end), 1)
 
 
-        ### DRAW TRAILS FIRST 
+        ### DRAW TRAILS FIRST
 
         # Draw projected target trail
         for pos in self.target_trail:
@@ -808,7 +808,7 @@ class AntDynamicsEnv(gym.Env):
             except TypeError:
                 print(other_ant)
                 logger.error("Cannot draw ant with provided coordinates.")
-        
+
         # Draw target ant
         pygame.draw.rect(canvas, (180, 0, 0),
                         (self.target_trail[-1][0] - ANT_DIM.x/2.,

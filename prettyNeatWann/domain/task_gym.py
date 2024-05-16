@@ -24,7 +24,7 @@ class GymTask():
     self.actRange = game.h_act
     self.absWCap  = game.weightCap
     self.layers   = game.layers      
-    self.activations = np.r_[np.full(1,1),game.i_act,game.o_act]
+    self.activations = np.r_[np.full(1,game.i_act[0]),game.i_act,game.o_act]
   
     # Environment
     self.nReps = nReps
