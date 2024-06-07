@@ -40,11 +40,25 @@ TIMESTEP = 1./SIM_FPS       # Not sure if this will be necessary, given the fixe
 TIME_LIMIT = SIM_FPS * 30   # 60 seconds
 
 ANT_DIM = vec2d(5, 5)
-AGENT_SPEED = 15*3.25       # Taken from slimevolley, will need to adjust based on feeling
+AGENT_SPEED = 20*3.25       # Taken from slimevolley, will need to adjust based on feeling
 TURN_RATE = 140 * 2 * math.pi / 360
 VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
-DRAW_ANT_VISION = True
+DRAW_ANT_VISION = False
+vision_segments = [
+    # Front arc: Directly in front of the agent
+    ((-math.pi / 2, -3*math.pi / 10), (180, 100, 100)),
+    ((-3*math.pi / 10, -math.pi / 10), (180, 180, 190)),
+    ((-math.pi / 10, math.pi / 10), (100, 180, 100)),
+    ((math.pi / 10, 3*math.pi / 10), (100, 180, 100)),
+    ((3*math.pi / 10, math.pi / 2), (180, 180, 190)),
+    # Right arc: To the right of the agent
+    ((-9 * math.pi / 6, -7 * math.pi / 6), (180, 100, 100)),
+    # Back arc: Directly behind the agent
+    ((-7 * math.pi / 6, -5 * math.pi / 6), (180, 180, 190)),
+    # Left arc: To the left of the agent
+    ((-5 * math.pi / 6, -math.pi / 2), (180, 180, 190)),
+]
 
 REWARD_TYPE = 'action'
 TRACK_TRAIL = 'all' # 'all', 'fade', 'none'
@@ -239,40 +253,61 @@ class Ant():
 
         # Detection scalar:
         # num of ants in cone, or distance to closes ant
+        self.V_f_l1 = None
+        self.V_f_l2 = None
         self.V_f = None
-        self.V_r = None
+        self.V_f_r2 = None
+        self.V_f_r1 = None
+        self.V_b_r = None
         self.V_b = None
-        self.V_l = None
+        self.V_b_l = None
         self.vision_range = VISION_RANGE
 
     def _detect_vision(self, detected_ants: dict):
+        v_f_l1 = len(detected_ants['forward_l1'])
+        v_f_l2 = len(detected_ants['forward_l2'])
         v_f = len(detected_ants['forward'])
-        v_r = len(detected_ants['right'])
-        v_b = len(detected_ants['back'])
-        v_l = len(detected_ants['left'])
+        v_f_r2 = len(detected_ants['forward_r2'])
+        v_f_r1 = len(detected_ants['forward_r1'])
+        v_b_r = len(detected_ants['backward_r'])
+        v_b = len(detected_ants['backward'])
+        v_b_l = len(detected_ants['backward_l'])
 
-        vision = [v_f, v_r, v_b, v_l]
-        denominator = np.sum([v_f, v_r, v_b, v_l])
+        vision = [v_f_l1, v_f_l2, v_f, v_f_r2, v_f_r1, v_b_r, v_b, v_b_l]
+        denominator = np.sum([v_f_l1, v_f_l2, v_f_r2, v_f_r1, v_b_r, v_b, v_b_l])
         if denominator != 0: vision /= denominator
 
-        self.V_f, self.V_r, self.V_b, self.V_l = vision
+        self.V_f_l1, self.V_f_l2, self.V_f, self.V_f_r2, self.V_f_r1,  self.V_b_r, self.V_b, self.V_b_l = vision
 
 
     def _detect_nearby_ants(self, other_ants):
         """
-        Detects other ants withsin a specified radius and identifies their relative
-        position quadrant based on this ant's orientation.
+        Detects other ants within a specified radius and identifies their relative
+        position segment based on this ant's orientation.
 
         Parameters:
         - other_ants (list of tuples): The (x, y) positions of other ants.
-        - radius (float): The radius within which to detect other ants.
 
         Returns:
-        - dict: A dictionary mapping 'forward', 'right', 'back', 'left' to a list
-                of ants (represented by their positions) that are within the specified
-                radius and fall into that relative quadrant.
+        - dict: A dictionary mapping segment names to a list of ants
+                (represented by their positions) that are within the specified
+                radius and fall into that relative segment.
         """
-        detected_ants = {'forward': [],  'left': [], 'back': [], 'right': []}
+        # Define the segments
+        detected_ants = {
+            'forward_l1': [], 'forward_l2': [], 'forward': [], 'forward_r2': [], 'forward_r1': [],
+            'backward_r': [], 'backward': [], 'backward_l': []
+        }
+        segment_boundaries = {
+            'forward_l1': vision_segments[0][0],
+            'forward_l2': vision_segments[1][0],
+            'forward': vision_segments[2][0],
+            'forward_r2': vision_segments[3][0],
+            'forward_r1': vision_segments[4][0],
+            'backward_r': vision_segments[5][0],
+            'backward': vision_segments[6][0],
+            'backward_l': vision_segments[7][0]
+        }
 
         for other_ant in other_ants:
             dx = other_ant[0] - self.pos.x
@@ -281,28 +316,23 @@ class Ant():
 
             if distance <= self.vision_range:
                 # Calculate angle from self.pos to other_ant.pos, adjusting with self.theta
-                angle_to_ant = math.atan2(dy, dx)
-                # Adjusting by self.theta to align with the direction the agent is facing
-                relative_angle = angle_to_ant - self.theta
-
-                # Normalise the relative angle to be between -pi and pi
-                relative_angle = (relative_angle + math.pi) % (2 * math.pi) - math.pi
-
-                # Determine quadrant based on relative_angle
-                if -math.pi/2 < relative_angle <= math.pi/2:
-                    if 0 <= relative_angle <= math.pi/2:
-                        direction = 'forward'
-                    else:
-                        direction = 'left'
-                else:
-                    if -math.pi/2 >= relative_angle:
-                        direction = 'back'
-                    else:
-                        direction = 'right'
-
-                detected_ants[direction].append(other_ant)
+                angle_to_ant = math.atan2(dy, dx) % (2 * np.pi)
+                # Determine segment based on relative_angle
+                for segment, (start_angle, stop_angle) in segment_boundaries.items():
+                    # Adjust bounds to be within -pi to pi
+                    start_angle = (self.theta + start_angle) % (2 * math.pi)
+                    stop_angle = (self.theta + stop_angle) % (2 * math.pi)
+                    if start_angle < stop_angle:
+                        if start_angle <= angle_to_ant < stop_angle:
+                            detected_ants[segment].append(other_ant)
+                            break
+                    else:  # Angle wraps around the -pi/pi boundary
+                        if start_angle <= angle_to_ant or angle_to_ant > stop_angle:
+                            detected_ants[segment].append(other_ant)
+                            break
 
         return detected_ants
+
 
 
     def _turn(self):
@@ -368,8 +398,9 @@ class Ant():
             self._detect_vision(self._detect_nearby_ants(others))
         result = [
             self.pos.x, self.pos.y, self.speed,
-            np.cos(self.theta), np.sin(self.theta), self.theta_dot,
-            self.V_f, self.V_r, self.V_b, self.V_l
+            self.theta, self.theta_dot,
+            self.V_f_l1, self.V_f_l2, self.V_f, self.V_f_r2, self.V_f_r1,
+            self.V_b_r, self.V_b, self.V_b_l,
         ]
         return result
 
@@ -548,6 +579,7 @@ class AntDynamicsEnv(gym.Env):
             if abs(target_data[p] - target_data[p-1]) % (2 * np.pi) > np.pi/2:
                 # print("old theta:", target_data)
                 target_data[p] = abs(target_data[p] - target_data[p-1]) % (2 * np.pi) + np.pi
+        # print(target_data)
         return target_data
 
 
@@ -583,18 +615,16 @@ class AntDynamicsEnv(gym.Env):
 
     def _compare_actions(self, actions, trail, time):
         """
-        Compare the agent's current action with the historical action of the agent
-        it is attemtping to shadow.
+        Compare the agent's current action with the historical action of the target agent.
         """
         forward, backward, turn_left, turn_right = actions
         # Calculate the direction of movement required
         dx = trail[time+1][0] - trail[time][0]
         dy = trail[time+1][1] - trail[time][1]
         # Target direction in radians
-        target_theta = math.atan2(dy, dx)
+        target_theta = math.atan2(dy, dx) % (2 * np.pi)
         # Calculate the smallest angle difference (target_theta - current_theta)
-        angle_diff = (target_theta - self.ant.theta + math.pi) % (2 * math.pi) - math.pi
-
+        angle_diff = (target_theta - self.ant.theta) % (2 * math.pi)
 
         return [forward, backward, turn_left, turn_right]
 
@@ -733,38 +763,26 @@ class AntDynamicsEnv(gym.Env):
                 self.ant.pos.y),
                 VISION_RANGE
             )
-            arc_definitions = [
-                # Front arc: Directly in front of the agent
-                ((-math.pi / 4 - self.ant.theta, math.pi / 4 - self.ant.theta), (180, 180, 190)),
-                # Right arc: To the right of the agent
-                ((math.pi / 4 - self.ant.theta, 3 * math.pi / 4 - self.ant.theta), (180, 180, 190)),
-                # Back arc: Directly behind the agent
-                ((3 * math.pi / 4 - self.ant.theta, 5 * math.pi / 4 - self.ant.theta), (180, 180, 190)),
-                # Left arc: To the left of the agent
-                ((5 * math.pi / 4 - self.ant.theta, 7 * math.pi / 4 - self.ant.theta), (180, 180, 190)),
-            ]
-            for (start_offset, stop_offset), colour in arc_definitions:
+            for (start_angle, stop_angle), colour in vision_segments:
                 # Calculate start and stop angles, normalized to 0 to 2*pi
-                start_angle = start_offset % (2 * math.pi)
-                stop_angle = stop_offset % (2 * math.pi)
-                # Ensuring clockwise drawing by adjusting for Pygame's drawing behavior
-                if start_angle > stop_angle:
-                    stop_angle += 2 * math.pi
-                pygame.draw.arc(
-                    canvas,
-                    colour,
-                    (self.ant.pos.x - VISION_RANGE,
-                     self.ant.pos.y - VISION_RANGE,
-                     VISION_RANGE*2, VISION_RANGE*2),
-                    start_angle, stop_angle, 1
+                start_angle = (self.ant.theta + start_angle) % (2 * math.pi)
+                stop_angle = (self.ant.theta + stop_angle) % (2 * math.pi)
+                
+                pygame.draw.line(canvas, colour,
+                    (self.ant.pos.x, self.ant.pos.y),
+                    np.add(
+                        np.array(self.ant.pos),
+                        np.array([np.cos(start_angle), np.sin(start_angle)]) * VISION_RANGE
+                    )
                 )
-
-                x_end = self.ant.pos.x - VISION_RANGE * math.cos(start_angle)
-                y_end = self.ant.pos.y + VISION_RANGE * math.sin(start_angle)
-                pygame.draw.line(canvas, colour, (self.ant.pos.x, self.ant.pos.y), (x_end, y_end), 1)
-                # x_end = self.ant.pos.x - VISION_RANGE * math.cos(stop_angle)
-                # y_end = self.ant.pos.y + VISION_RANGE * math.sin(stop_angle)
-                # pygame.draw.line(canvas, colour, (self.ant.pos.x, self.ant.pos.y), (x_end, y_end), 1)
+            # pygame.draw.arc(
+            #     canvas,
+            #     colour,
+            #     (self.ant.pos.x - VISION_RANGE,
+            #     self.ant.pos.y - VISION_RANGE,
+            #     VISION_RANGE*2, VISION_RANGE*2),
+            #     arc_definitions[2][0][1], arc_definitions[2][0][0], 1
+            # )
 
 
         ### DRAW TRAILS FIRST
