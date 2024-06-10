@@ -217,9 +217,10 @@ ant_dynamics = Game(env_name='AntDynamics-v0',
   in_out_labels = [
       # Inputs
       'x','y','speed',
-      'cos(theta)','sin(theta)','theta_dot',
+      'theta','theta_dot',
       # Vision {forward, right, back, left}
-      'V_forward', 'V_right', 'V_backward', 'V_left',
+      'V_forward_l1', 'V_forward_l2', 'V_forward_c', 'V_forward_r2', 'V_forward_r1',
+      'V_backward_r', 'V_backward', 'V_backward_l',
       # Outputs
       'forward', 'backward', 'turn_left', 'turn_right']
 )

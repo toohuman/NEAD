@@ -44,7 +44,7 @@ AGENT_SPEED = 20*3.25       # Taken from slimevolley, will need to adjust based 
 TURN_RATE = 140 * 2 * math.pi / 360
 VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
-DRAW_ANT_VISION = False
+DRAW_ANT_VISION = True
 vision_segments = [
     # Front arc: Directly in front of the agent
     ((-math.pi / 2, -3*math.pi / 10), (180, 100, 100)),
