@@ -558,6 +558,12 @@ class AntDynamicsEnv(gym.Env):
         else: return theta
 
 
+    def _smallest_angle_diff(self, theta1, theta2):
+        diff1 = (theta2 - theta1) % (2 * math.pi)
+        diff2 = (theta1 - theta2) % (2 * math.pi)
+        return min(diff1, diff2)
+
+
     def _calculate_target_data(self, trail):
         target_data = {
             'angle': [],
@@ -569,29 +575,32 @@ class AntDynamicsEnv(gym.Env):
             # turn-left, turn-right
             # stop
         }
-        target_data = []
         time = 0
-        prev_polarity = -1
+        prev_angle = -1
         # Get the polarity time series based on movement of the ant
         while time != len(trail):
-            polarity, interval = self._get_angle_from_trajectory(trail, time, interval=True)
-            if polarity >= 0:
-                prev_polarity = polarity
+            angle, interval = self._get_angle_from_trajectory(trail, time, interval=True)
+            if angle >= 0:
+                prev_angle = angle
                 for i in range(interval):
-                    target_data.append(polarity)
+                    target_data['angle'].append(angle)
             else:
                 for i in range(interval):
-                    target_data.append(prev_polarity)
+                    target_data['angle'].append(prev_angle)
             time += interval
-        # Now that we know movement polarity, invert any sudden polarity changes
+        # Now that we know movement angle, invert any sudden angle changes
         # due to moving backwards. (I think this is a valid assumption & correction.)
-        for p in range(1, len(target_data)):
-            # print("1:", target_data[p], target_data[p-1])
-            # print("2:", target_data[p] - target_data[p-1], abs(target_data[p] - target_data[p-1]) % (2 * np.pi))
-            if abs(target_data[p] - target_data[p-1]) % (2 * np.pi) > np.pi/2:
-                # print("old theta:", target_data)
-                target_data[p] = abs(target_data[p] - target_data[p-1]) % (2 * np.pi) + np.pi
-        # print(target_data)
+        for p in range(1, len(target_data['angle'])):
+            # print("1:", target_data['angle'][p], target_data['angle'][p-1])
+            # print("2:", target_data['angle'][p] - target_data['angle'][p-1], abs(target_data['angle'][p] - target_data['angle'][p-1]) % (2 * np.pi))
+            print(target_data['angle'][p], "-", target_data['angle'][p-1], "=", self._smallest_angle_diff(target_data['angle'][p], target_data['angle'][p-1]))
+            diff = self._smallest_angle_diff(target_data['angle'][p], target_data['angle'][p-1])
+            
+            # if abs(target_data['angle'][p] - target_data['angle'][p-1]) % (2 * np.pi) > np.pi/1.2:
+            #     print("sudden theta:", target_data['angle'][p])
+            #     target_data['angle'][p] = abs(target_data['angle'][p] - target_data['angle'][p-1] + np.pi) % (2 * np.pi)
+            #     print("new theta:", target_data['angle'][p])
+            
         return target_data
 
 
