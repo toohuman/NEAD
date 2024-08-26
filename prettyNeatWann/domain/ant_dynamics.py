@@ -48,7 +48,7 @@ AGENT_SPEED = 25*3.25       # Taken from slimevolley, will need to adjust based 
 TURN_RATE = 200 * 2 * math.pi / 360
 VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
-DRAW_ANT_VISION = False
+DRAW_ANT_VISION = True
 vision_segments = [
     # Front arc: Directly in front of the agent
     ((-math.pi / 2, -3*math.pi / 10), (180, 100, 100)),
@@ -64,7 +64,7 @@ vision_segments = [
     ((-5 * math.pi / 6, -math.pi / 2), (180, 180, 190)),
 ]
 
-REWARD_TYPE = 'action' # 'trail', 'action'
+REWARD_TYPE = 'trail' # 'trail', 'action'
 TRACK_TRAIL = 'all' # 'all', 'fade', 'none'
 MOVEMENT_THRESHOLD = 10
 FADE_DURATION = 5 # seconds
@@ -593,9 +593,11 @@ class AntDynamicsEnv(gym.Env):
         for p in range(1, len(target_data['angle'])):
             # print("1:", target_data['angle'][p], target_data['angle'][p-1])
             # print("2:", target_data['angle'][p] - target_data['angle'][p-1], abs(target_data['angle'][p] - target_data['angle'][p-1]) % (2 * np.pi))
-            print(target_data['angle'][p], "-", target_data['angle'][p-1], "=", self._smallest_angle_diff(target_data['angle'][p], target_data['angle'][p-1]))
             diff = self._smallest_angle_diff(target_data['angle'][p], target_data['angle'][p-1])
-            
+            print(diff)
+
+            # if 
+
             # if abs(target_data['angle'][p] - target_data['angle'][p-1]) % (2 * np.pi) > np.pi/1.2:
             #     print("sudden theta:", target_data['angle'][p])
             #     target_data['angle'][p] = abs(target_data['angle'][p] - target_data['angle'][p-1] + np.pi) % (2 * np.pi)
@@ -896,38 +898,39 @@ class AntDynamicsEnv(gym.Env):
 
 if __name__ == "__main__":
     env = AntDynamicsEnv(render_mode='human')
-    total_reward = 0
-    obs = env.reset()
+    while True:
+        total_reward = 0
+        obs = env.reset()
 
-    manual_mode = True
-    manual_action = [0, 0, 0, 0]
+        manual_mode = True
+        manual_action = [0, 0, 0, 0]
 
-    done = False
-    while not done:
-        if manual_mode:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    done = True
-                if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
+        done = False
+        while not done:
+            if manual_mode:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
                         done = True
-                    if event.key == pygame.K_r:
-                        env.reset()
-                    if event.key == pygame.K_UP:    manual_action[0] = 1
-                    if event.key == pygame.K_DOWN:  manual_action[1] = 1
-                    if event.key == pygame.K_LEFT:  manual_action[2] = 1
-                    if event.key == pygame.K_RIGHT: manual_action[3] = 1
-                elif event.type == pygame.KEYUP:
-                    if event.key == pygame.K_UP:    manual_action[0] = 0
-                    if event.key == pygame.K_DOWN:  manual_action[1] = 0
-                    if event.key == pygame.K_LEFT:  manual_action[2] = 0
-                    if event.key == pygame.K_RIGHT: manual_action[3] = 0
-            action = manual_action
+                    if event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_ESCAPE:
+                            done = True
+                        if event.key == pygame.K_r:
+                            env.reset()
+                        if event.key == pygame.K_UP:    manual_action[0] = 1
+                        if event.key == pygame.K_DOWN:  manual_action[1] = 1
+                        if event.key == pygame.K_LEFT:  manual_action[2] = 1
+                        if event.key == pygame.K_RIGHT: manual_action[3] = 1
+                    elif event.type == pygame.KEYUP:
+                        if event.key == pygame.K_UP:    manual_action[0] = 0
+                        if event.key == pygame.K_DOWN:  manual_action[1] = 0
+                        if event.key == pygame.K_LEFT:  manual_action[2] = 0
+                        if event.key == pygame.K_RIGHT: manual_action[3] = 0
+                action = manual_action
 
-        if done: break
+            obs, reward, done, _ = env.step(action)
+            total_reward += reward
 
-        obs, reward, done, _ = env.step(action)
-        total_reward += reward
+            if done: break
 
 
     env.close()
