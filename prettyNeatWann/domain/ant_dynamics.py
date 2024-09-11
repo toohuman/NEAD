@@ -318,7 +318,7 @@ class Ant():
 
             if distance <= self.vision_range:
                 # Calculate angle from self.pos to other_ant.pos, adjusting with self.theta
-                angle_to_ant = math.atan2(dy, dx) % (2 * np.pi)
+                angle_to_ant = math.atan2(dy, dx) % (2 * math.pi)
                 # Determine segment based on relative_angle
                 for segment, (start_angle, stop_angle) in segment_boundaries.items():
                     # Adjust bounds to be within -pi to pi
@@ -339,7 +339,7 @@ class Ant():
 
     def _turn(self):
         self.theta += (self.theta_dot * TIMESTEP)
-        self.theta = self.theta % (2 * np.pi)
+        self.theta = self.theta % (2 * math.pi)
 
 
     def _move(self, arena):
@@ -359,14 +359,14 @@ class Ant():
         # else:
         #     # Calculate the angle from the center of the circle to the agent
         #     angle_to_center = math.atan2(self.pos.y - arena[0][1], self.pos.x - arena[0][0])
-        #     if angle_to_center < 0: angle_to_center += np.pi
-        #     if (self.theta >= angle_to_center) and (self.theta < angle_to_center + np.pi):
-        #         d_theta = np.pi / 2 - self.desired_turn_speed
-        #     elif (self.theta < angle_to_center) or (self.theta >= angle_to_center - np.pi):
-        #         d_theta = -np.pi / 2 + self.desired_turn_speed
+        #     if angle_to_center < 0: angle_to_center += math.pi
+        #     if (self.theta >= angle_to_center) and (self.theta < angle_to_center + math.pi):
+        #         d_theta = math.pi / 2 - self.desired_turn_speed
+        #     elif (self.theta < angle_to_center) or (self.theta >= angle_to_center - math.pi):
+        #         d_theta = -math.pi / 2 + self.desired_turn_speed
 
         #     theta = self.theta + d_theta * TIMESTEP
-        #     theta = theta % (2 * np.pi)
+        #     theta = theta % (2 * math.pi)
         #     self.theta = theta
 
 
@@ -413,7 +413,7 @@ class Ant():
             self.pos.y - np.random.randn() * noise
         )
         self.theta += (np.random.randn() * noise)
-        self.theta = self.theta % (2 * np.pi)
+        self.theta = self.theta % (2 * math.pi)
 
         self.speed = self.desired_speed
         self.theta_dot = self.desired_turn_speed
@@ -541,21 +541,32 @@ class AntDynamicsEnv(gym.Env):
         return Ant(target[0]), target, other_ants
 
 
-    def _get_angle_from_trajectory(self, trail, start_time, interval=False):
+    def _get_interval_data(self, trail, start_time, interval=False):
         theta = -1
         threshold = 5
         time = start_time + 1
+        time_offset = 0
+        distance = 0
         while time != len(trail) and theta < 0:
             try:
                 dx, dy = trail[time] - trail[start_time]
             except IndexError:
                 break
-            if threshold < (np.sqrt(dx**2 + dy**2)):
-                theta = math.atan2(dy, dx) % (2 * np.pi)
+            if dx == 0 and dy == 0:
+                time_offset += 1
+            else:
+                current_distance = np.sqrt(dx**2 + dy**2)
+                if current_distance > threshold:
+                    theta = math.atan2(dy, dx) % (2 * math.pi)
+                    distance = current_distance
             time += 1
 
-        if interval: return theta, (time - start_time)
-        else: return theta
+        return distance, theta, (time - start_time), time_offset
+
+
+    def _get_angle_from_trajectory(self, trail, start_time):
+        _, angle, _, _ = self._get_interval_data(trail, start_time)
+        return angle
 
 
     def _smallest_angle_diff(self, theta1, theta2):
@@ -567,7 +578,7 @@ class AntDynamicsEnv(gym.Env):
     def _calculate_target_data(self, trail):
         target_data = {
             'angle': [],
-            'motion': [],
+            'distance': [],
             'action': []
             # ACTION SET:
             # forward, forward-left, forward-right
@@ -579,30 +590,25 @@ class AntDynamicsEnv(gym.Env):
         prev_angle = -1
         # Get the polarity time series based on movement of the ant
         while time != len(trail):
-            angle, interval = self._get_angle_from_trajectory(trail, time, interval=True)
-            if angle >= 0:
-                prev_angle = angle
-                for i in range(interval):
+            distance, angle, interval, offset = self._get_interval_data(trail, time, interval=True)
+            for i in range(interval):
+                target_data['distance'].append(distance/(interval-offset) if i >= offset else 0)
+                if angle >= 0:
+                    prev_angle = angle
                     target_data['angle'].append(angle)
-            else:
-                for i in range(interval):
+                else:
                     target_data['angle'].append(prev_angle)
+                print(i)
             time += interval
+
         # Now that we know movement angle, invert any sudden angle changes
         # due to moving backwards. (I think this is a valid assumption & correction.)
+        reverse_dir = False
         for p in range(1, len(target_data['angle'])):
-            # print("1:", target_data['angle'][p], target_data['angle'][p-1])
-            # print("2:", target_data['angle'][p] - target_data['angle'][p-1], abs(target_data['angle'][p] - target_data['angle'][p-1]) % (2 * np.pi))
             diff = self._smallest_angle_diff(target_data['angle'][p], target_data['angle'][p-1])
-            print(diff)
-
-            # if 
-
-            # if abs(target_data['angle'][p] - target_data['angle'][p-1]) % (2 * np.pi) > np.pi/1.2:
-            #     print("sudden theta:", target_data['angle'][p])
-            #     target_data['angle'][p] = abs(target_data['angle'][p] - target_data['angle'][p-1] + np.pi) % (2 * np.pi)
-            #     print("new theta:", target_data['angle'][p])
-            
+            if diff > math.pi:
+                reverse_dir = True
+        
         return target_data
 
 
@@ -645,7 +651,7 @@ class AntDynamicsEnv(gym.Env):
         dx = trail[time+1][0] - trail[time][0]
         dy = trail[time+1][1] - trail[time][1]
         # Target direction in radians
-        target_theta = math.atan2(dy, dx) % (2 * np.pi)
+        target_theta = math.atan2(dy, dx) % (2 * math.pi)
         # Calculate the smallest angle difference (target_theta - current_theta)
         angle_diff = (target_theta - self.ant.theta) % (2 * math.pi)
 
@@ -898,39 +904,40 @@ class AntDynamicsEnv(gym.Env):
 
 if __name__ == "__main__":
     env = AntDynamicsEnv(render_mode='human')
-    while True:
-        total_reward = 0
-        obs = env.reset()
+    
+    total_reward = 0
+    obs = env.reset()
 
-        manual_mode = True
-        manual_action = [0, 0, 0, 0]
+    manual_mode = True
+    manual_action = [0, 0, 0, 0]
 
-        done = False
-        while not done:
-            if manual_mode:
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
+    done = False
+    while not done:
+        if manual_mode:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    done = True
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
                         done = True
-                    if event.type == pygame.KEYDOWN:
-                        if event.key == pygame.K_ESCAPE:
-                            done = True
-                        if event.key == pygame.K_r:
-                            env.reset()
-                        if event.key == pygame.K_UP:    manual_action[0] = 1
-                        if event.key == pygame.K_DOWN:  manual_action[1] = 1
-                        if event.key == pygame.K_LEFT:  manual_action[2] = 1
-                        if event.key == pygame.K_RIGHT: manual_action[3] = 1
-                    elif event.type == pygame.KEYUP:
-                        if event.key == pygame.K_UP:    manual_action[0] = 0
-                        if event.key == pygame.K_DOWN:  manual_action[1] = 0
-                        if event.key == pygame.K_LEFT:  manual_action[2] = 0
-                        if event.key == pygame.K_RIGHT: manual_action[3] = 0
-                action = manual_action
-
-            obs, reward, done, _ = env.step(action)
-            total_reward += reward
-
+                    if event.key == pygame.K_r:
+                        env.reset()
+                    if event.key == pygame.K_UP:    manual_action[0] = 1
+                    if event.key == pygame.K_DOWN:  manual_action[1] = 1
+                    if event.key == pygame.K_LEFT:  manual_action[2] = 1
+                    if event.key == pygame.K_RIGHT: manual_action[3] = 1
+                elif event.type == pygame.KEYUP:
+                    if event.key == pygame.K_UP:    manual_action[0] = 0
+                    if event.key == pygame.K_DOWN:  manual_action[1] = 0
+                    if event.key == pygame.K_LEFT:  manual_action[2] = 0
+                    if event.key == pygame.K_RIGHT: manual_action[3] = 0
+            action = manual_action
             if done: break
+
+        obs, reward, done, _ = env.step(action)
+        total_reward += reward
+
+        if done: break
 
 
     env.close()
