@@ -598,7 +598,7 @@ class AntDynamicsEnv(gym.Env):
                     target_data['angle'].append(angle)
                 else:
                     target_data['angle'].append(prev_angle)
-                print(i)
+                    
             time += interval
 
         # Now that we know movement angle, invert any sudden angle changes
