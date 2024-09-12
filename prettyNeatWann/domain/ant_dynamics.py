@@ -575,6 +575,13 @@ class AntDynamicsEnv(gym.Env):
         return min(diff1, diff2)
 
 
+    def _angle_difference(self, angle1, angle2):
+        diff = (angle2 - angle1) % (2 * math.pi)
+        if diff > math.pi:
+            diff -= 2 * math.pi
+        return diff
+
+
     def _calculate_target_data(self, trail):
         target_data = {
             'angle': [],
@@ -587,27 +594,51 @@ class AntDynamicsEnv(gym.Env):
             # stop
         }
         time = 0
-        prev_angle = -1
+
+        def determine_action(distance, angle_diff):
+            base_action = "STOP"
+            turn_direction = ""
+            
+            if distance > 0:
+                base_action = "FORWARD" if abs(angle_diff) <= math.pi else "BACKWARD"
+            
+            if angle_diff != 0:
+                turn_direction = "-RIGHT" if angle_diff > 0 else "-LEFT"
+            
+            return f"{base_action}{turn_direction}".strip()
+
         # Get the polarity time series based on movement of the ant
         while time != len(trail):
             distance, angle, interval, offset = self._get_interval_data(trail, time, interval=True)
+            # !!! I CAN REMOVE THIS FOR-LOOP WITH A LITTLE BIT OF THOUGHT !!!
             for i in range(interval):
                 target_data['distance'].append(distance/(interval-offset) if i >= offset else 0)
-                if angle >= 0:
-                    prev_angle = angle
-                    target_data['angle'].append(angle)
-                else:
-                    target_data['angle'].append(prev_angle)
-                    
-            time += interval
+                target_data['angle'].append(angle)
+                reverse_dir = False
 
-        # Now that we know movement angle, invert any sudden angle changes
-        # due to moving backwards. (I think this is a valid assumption & correction.)
-        reverse_dir = False
-        for p in range(1, len(target_data['angle'])):
-            diff = self._smallest_angle_diff(target_data['angle'][p], target_data['angle'][p-1])
-            if diff > math.pi:
-                reverse_dir = True
+                if time > 0:
+                    diff = self._smallest_angle_diff(target_data['angle'][time], target_data['angle'][time-1])
+                    reverse_dir = True if diff > math.pi else False
+
+                # If the ant is moving
+                if distance > 0:
+                    target_data['action'] = "FORWARD" if not reverse_dir else "BACKWARD"
+                # Else, the ant isnt' moving, but perhaps still turning?
+                else:
+                    # turn-left, turn-right: without movement, is it possible to register?
+                    pass
+
+                time += 1
+                    
+            # time += interval
+        print(target_data['angle'])
+        # Now that we know movement angle, invert any sudden angle changes by assuming backwards movement.
+        # (I think this is a valid assumption, but let's see...)
+        # reverse_dir = False
+        # for t in range(1, time):
+        #     diff = self._smallest_angle_diff(target_data['angle'][t], target_data['angle'][t-1])
+        #     if diff > math.pi:
+        #         reverse_dir = True
         
         return target_data
 
