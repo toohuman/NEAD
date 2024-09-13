@@ -547,7 +547,7 @@ class AntDynamicsEnv(gym.Env):
         time = start_time + 1
         time_offset = 0
         distance = 0
-        while time != len(trail) and theta < 0:
+        while theta < 0 and time != len(trail):
             try:
                 dx, dy = trail[time] - trail[start_time]
             except IndexError:
@@ -615,30 +615,20 @@ class AntDynamicsEnv(gym.Env):
                 target_data['distance'].append(distance/(interval-offset) if i >= offset else 0)
                 target_data['angle'].append(angle)
                 reverse_dir = False
-
+            
                 if time > 0:
-                    diff = self._smallest_angle_diff(target_data['angle'][time], target_data['angle'][time-1])
-                    reverse_dir = True if diff > math.pi else False
-
-                # If the ant is moving
-                if distance > 0:
-                    target_data['action'] = "FORWARD" if not reverse_dir else "BACKWARD"
-                # Else, the ant isnt' moving, but perhaps still turning?
+                    angle_diff = self._angle_difference(target_data['angle'][time-1], angle)
+                    action = determine_action(distance, angle_diff)
                 else:
-                    # turn-left, turn-right: without movement, is it possible to register?
-                    pass
+                    action = "STOP"  # First frame, no movement
 
+                target_data['action'].append(action)
                 time += 1
                     
             # time += interval
-        print(target_data['angle'])
-        # Now that we know movement angle, invert any sudden angle changes by assuming backwards movement.
-        # (I think this is a valid assumption, but let's see...)
-        # reverse_dir = False
-        # for t in range(1, time):
-        #     diff = self._smallest_angle_diff(target_data['angle'][t], target_data['angle'][t-1])
-        #     if diff > math.pi:
-        #         reverse_dir = True
+        print(target_data['action'])
+        if "BACKWARD" in target_data['action']:
+            print("!! BACKWARD FOUND !!")
         
         return target_data
 
