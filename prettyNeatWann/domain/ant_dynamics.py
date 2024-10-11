@@ -253,6 +253,12 @@ class Ant():
         self.theta_dot = 0.0
         self.trail = []
 
+        # Timing counters for smooth turning
+        self.turning_time_left = 0.0
+        self.turning_time_right = 0.0
+
+        self.max_turn_duration = 0.2  # Time to reach full turn rate in seconds
+
         # Detection scalar:
         # num of ants in cone, or distance to closes ant
         self.V_f_l1 = None
@@ -280,6 +286,8 @@ class Ant():
         if denominator != 0: vision /= denominator
 
         self.V_f_l1, self.V_f_l2, self.V_f, self.V_f_r2, self.V_f_r1,  self.V_b_r, self.V_b, self.V_b_l = vision
+
+        
 
 
     def _detect_nearby_ants(self, other_ants):
@@ -338,7 +346,7 @@ class Ant():
 
 
     def _turn(self):
-        self.theta += (self.theta_dot * TIMESTEP)
+        self.theta += self.theta_dot * TIMESTEP
         self.theta = self.theta % (2 * math.pi)
 
 
@@ -388,10 +396,27 @@ class Ant():
             self.desired_speed = AGENT_SPEED
         if (backward and (not forward)):
             self.desired_speed = -AGENT_SPEED
-        if (turn_left and (not turn_right)):
-            self.desired_turn_speed = -TURN_RATE
-        if (turn_right and (not turn_left)):
-            self.desired_turn_speed = TURN_RATE
+
+        # Turn left
+        if turn_left and not turn_right:
+            self.turning_time_left += TIMESTEP  # Increase time turning left
+            self.turning_time_right = 0.0       # Reset right turn time
+            # Scale the turn rate based on how long we've been turning
+            scale_factor = min(self.turning_time_left / self.max_turn_duration, 1.0)
+            self.desired_turn_speed = -TURN_RATE * scale_factor
+
+        # Turn right
+        if turn_right and not turn_left:
+            self.turning_time_right += TIMESTEP  # Increase time turning right
+            self.turning_time_left = 0.0         # Reset left turn time
+            # Scale the turn rate based on how long we've been turning
+            scale_factor = min(self.turning_time_right / self.max_turn_duration, 1.0)
+            self.desired_turn_speed = TURN_RATE * scale_factor
+
+        # If no turn, reset the turn timers
+        if not turn_left and not turn_right:
+            self.turning_time_left = 0.0
+            self.turning_time_right = 0.0
 
         return [int(x) for x in [forward, backward, turn_left, turn_right]]
 
