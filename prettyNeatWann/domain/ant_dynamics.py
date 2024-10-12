@@ -41,7 +41,7 @@ vec2d = namedtuple('vec2d', ['x', 'y'])
 # Global parameters for agent control
 TIMESTEP = 1./SIM_FPS       # Not sure if this will be necessary, given the fixed FPS?
 # TIME_LIMIT = SIM_FPS * 60   # 60 seconds
-TIME_LIMIT = SIM_FPS * 30   # 60 seconds
+TIME_LIMIT = SIM_FPS * 120   # 60 seconds
 
 ANT_DIM = vec2d(5, 5)
 AGENT_SPEED = 25*3.25       # Taken from slimevolley, will need to adjust based on feeling
@@ -49,22 +49,28 @@ TURN_RATE = 200 * 2 * math.pi / 360
 VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
 DRAW_ANT_VISION = True
+
 vision_segments = [
     # Front arc: Directly in front of the agent
-    ((-math.pi / 2, -3*math.pi / 10), (180, 100, 100)),
-    ((-3*math.pi / 10, -math.pi / 10), (180, 180, 190)),
-    ((-math.pi / 10, math.pi / 10), (100, 180, 100)),
-    ((math.pi / 10, 3*math.pi / 10), (100, 180, 100)),
-    ((3*math.pi / 10, math.pi / 2), (180, 180, 190)),
-    # Right arc: To the right of the agent
-    ((-9 * math.pi / 6, -7 * math.pi / 6), (180, 100, 100)),
-    # Back arc: Directly behind the agent
-    ((-7 * math.pi / 6, -5 * math.pi / 6), (180, 180, 190)),
-    # Left arc: To the left of the agent
-    ((-5 * math.pi / 6, -math.pi / 2), (180, 180, 190)),
+    # Bright red, intense and strong
+    ((-math.pi / 2, -3 * math.pi / 10), (255, 0, 0)),
+    # Vivid orange, warm and energetic
+    ((-3 * math.pi / 10, -math.pi / 10), (255, 165, 0)),
+    # Bright yellow, cheerful and vibrant
+    ((-math.pi / 10, math.pi / 10), (255, 255, 0)),
+    # Bright green, fresh and lively
+    ((math.pi / 10, 3 * math.pi / 10), (0, 255, 0)),
+    # Sky blue, cool and calm
+    ((3 * math.pi / 10, math.pi / 2), (0, 0, 255)),
+    # Deep indigo, mysterious and strong
+    ((-9 * math.pi / 6, -7 * math.pi / 6), (75, 0, 130)),
+    # Soft violet, dreamy and delicate
+    ((-7 * math.pi / 6, -5 * math.pi / 6), (238, 130, 238)),
+    # Soft pink, gentle and warm
+    ((-5 * math.pi / 6, -math.pi / 2), (255, 192, 203)),
 ]
 
-REWARD_TYPE = 'trail' # 'trail', 'action'
+REWARD_TYPE = 'action' # 'trail', 'action'
 TRACK_TRAIL = 'all' # 'all', 'fade', 'none'
 MOVEMENT_THRESHOLD = 10
 FADE_DURATION = 5 # seconds
@@ -271,23 +277,61 @@ class Ant():
         self.V_b_l = None
         self.vision_range = VISION_RANGE
 
-    def _detect_vision(self, detected_ants: dict):
-        v_f_l1 = len(detected_ants['forward_l1'])
-        v_f_l2 = len(detected_ants['forward_l2'])
-        v_f = len(detected_ants['forward'])
-        v_f_r2 = len(detected_ants['forward_r2'])
-        v_f_r1 = len(detected_ants['forward_r1'])
-        v_b_r = len(detected_ants['backward_r'])
-        v_b = len(detected_ants['backward'])
-        v_b_l = len(detected_ants['backward_l'])
 
-        vision = [v_f_l1, v_f_l2, v_f, v_f_r2, v_f_r1, v_b_r, v_b, v_b_l]
-        denominator = np.sum([v_f_l1, v_f_l2, v_f_r2, v_f_r1, v_b_r, v_b, v_b_l])
-        if denominator != 0: vision /= denominator
+    def _detect_vision(self, detected_ants: dict, total_colony_size: int, max_value: float = 1.0):
+        """
+        Scales the number of detected ants in each vision segment using an exponential function,
+        ensuring that the scaled value reaches approximately max_value when 20% of the colony is detected
+        in a single segment.
 
-        self.V_f_l1, self.V_f_l2, self.V_f, self.V_f_r2, self.V_f_r1,  self.V_b_r, self.V_b, self.V_b_l = vision
+        Parameters:
+        - detected_ants (dict):
+            A dictionary mapping segment names to lists of detected ants.
 
-        
+        - total_colony_size (int):
+            The total number of ants in the colony.
+
+        - max_value (float, optional):
+            The maximum value that the scaled output can reach for each segment.
+            Default is 1.0.
+
+        Assigns:
+        - self.V_f_l1, self.V_f_l2, self.V_f, self.V_f_r2,
+        self.V_f_r1, self.V_b_r, self.V_b, self.V_b_l:
+            The scaled vision values for each segment.
+        """
+        # Constant k to ensure the scaled value reaches ~99% of max_value at adjusted_fraction = 1
+        k = 4.60517  # k = -ln(0.01)
+
+        vision_counts = [
+            len(detected_ants['forward_l1']),
+            len(detected_ants['forward_l2']),
+            len(detected_ants['forward']),
+            len(detected_ants['forward_r2']),
+            len(detected_ants['forward_r1']),
+            len(detected_ants['backward_r']),
+            len(detected_ants['backward']),
+            len(detected_ants['backward_l'])
+        ]
+
+        scaled_vision = []
+        for ants_detected in vision_counts:
+            # Normalize ants_detected by total_colony_size
+            fraction_detected = ants_detected / total_colony_size if total_colony_size > 0 else 0.0
+
+            # Adjust fraction_detected so that 20% of the colony corresponds to an adjusted fraction of 1
+            adjusted_fraction = min(fraction_detected / 0.2, 1.0)
+
+            # Apply exponential scaling
+            scaled_value = max_value * (1 - math.exp(-k * adjusted_fraction))
+
+            scaled_vision.append(scaled_value)
+
+        # Assign the scaled values to the instance variables
+        (
+            self.V_f_l1, self.V_f_l2, self.V_f, self.V_f_r2,
+            self.V_f_r1, self.V_b_r, self.V_b, self.V_b_l
+        ) = scaled_vision
 
 
     def _detect_nearby_ants(self, other_ants):
@@ -309,14 +353,14 @@ class Ant():
             'backward_r': [], 'backward': [], 'backward_l': []
         }
         segment_boundaries = {
-            'forward_l1': vision_segments[0][0],
-            'forward_l2': vision_segments[1][0],
-            'forward': vision_segments[2][0],
-            'forward_r2': vision_segments[3][0],
-            'forward_r1': vision_segments[4][0],
-            'backward_r': vision_segments[5][0],
-            'backward': vision_segments[6][0],
-            'backward_l': vision_segments[7][0]
+            'forward_l1': tuple((self.theta + angle) % (2 * math.pi) for angle in vision_segments[0][0]),
+            'forward_l2': tuple((self.theta + angle) % (2 * math.pi) for angle in vision_segments[1][0]),
+            'forward':    tuple((self.theta + angle) % (2 * math.pi) for angle in vision_segments[2][0]),
+            'forward_r2': tuple((self.theta + angle) % (2 * math.pi) for angle in vision_segments[3][0]),
+            'forward_r1': tuple((self.theta + angle) % (2 * math.pi) for angle in vision_segments[4][0]),
+            'backward_r': tuple((self.theta + angle) % (2 * math.pi) for angle in vision_segments[5][0]),
+            'backward':   tuple((self.theta + angle) % (2 * math.pi) for angle in vision_segments[6][0]),
+            'backward_l': tuple((self.theta + angle) % (2 * math.pi) for angle in vision_segments[7][0]),
         }
 
         for other_ant in other_ants:
@@ -329,20 +373,17 @@ class Ant():
                 angle_to_ant = math.atan2(dy, dx) % (2 * math.pi)
                 # Determine segment based on relative_angle
                 for segment, (start_angle, stop_angle) in segment_boundaries.items():
-                    # Adjust bounds to be within -pi to pi
-                    start_angle = (self.theta + start_angle) % (2 * math.pi)
-                    stop_angle = (self.theta + stop_angle) % (2 * math.pi)
                     if start_angle < stop_angle:
-                        if start_angle <= angle_to_ant < stop_angle:
+                        if start_angle <= angle_to_ant <= stop_angle:
                             detected_ants[segment].append(other_ant)
                             break
-                    else:  # Angle wraps around the -pi/pi boundary
-                        if start_angle <= angle_to_ant or angle_to_ant > stop_angle:
+                    else:
+                        # Angle wraps around the 2π boundary
+                        if angle_to_ant >= start_angle or angle_to_ant <= stop_angle:
                             detected_ants[segment].append(other_ant)
                             break
 
         return detected_ants
-
 
 
     def _turn(self):
@@ -422,7 +463,7 @@ class Ant():
 
     def get_obs(self, others=None):
         if others is not None:
-            self._detect_vision(self._detect_nearby_ants(others))
+            self._detect_vision(self._detect_nearby_ants(others), len(others))
         result = [
             self.pos.x, self.pos.y, self.speed,
             self.theta, self.theta_dot,
@@ -649,11 +690,8 @@ class AntDynamicsEnv(gym.Env):
 
                 target_data['action'].append(action)
                 time += 1
-                    
+        
             # time += interval
-        print(target_data['action'])
-        if "BACKWARD" in target_data['action']:
-            print("!! BACKWARD FOUND !!")
         
         return target_data
 
