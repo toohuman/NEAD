@@ -635,12 +635,6 @@ class AntDynamicsEnv(gym.Env):
         return angle
 
 
-    def _smallest_angle_diff(self, theta1, theta2):
-        diff1 = (theta2 - theta1) % (2 * math.pi)
-        diff2 = (theta1 - theta2) % (2 * math.pi)
-        return min(diff1, diff2)
-
-
     def _angle_difference(self, angle1, angle2):
         diff = (angle2 - angle1) % (2 * math.pi)
         if diff > math.pi:
@@ -653,46 +647,62 @@ class AntDynamicsEnv(gym.Env):
             'angle': [],
             'distance': [],
             'action': []
-            # ACTION SET:
-            # forward, forward-left, forward-right
-            # backward, backward-left, backward-right
-            # turn-left, turn-right
-            # stop
         }
+        time = 0
+
+    def _calculate_target_data(self, trail):
+        target_data = {
+            'angle': [],
+            'distance': [],
+            'action': [],
+            'speed': []
+        }
+        
+        dt = 5  # Set a reasonable time delta larger than the 1/30 timestep
         time = 0
 
         def determine_action(distance, angle_diff):
             base_action = "STOP"
             turn_direction = ""
-            
+
             if distance > 0:
                 base_action = "FORWARD" if abs(angle_diff) <= math.pi else "BACKWARD"
-            
+
             if angle_diff != 0:
                 turn_direction = "-RIGHT" if angle_diff > 0 else "-LEFT"
-            
+
             return f"{base_action}{turn_direction}".strip()
 
-        # Get the polarity time series based on movement of the ant
-        while time != len(trail):
-            distance, angle, interval, offset = self._get_interval_data(trail, time, interval=True)
-            # !!! I CAN REMOVE THIS FOR-LOOP WITH A LITTLE BIT OF THOUGHT !!!
-            for i in range(interval):
-                target_data['distance'].append(distance/(interval-offset) if i >= offset else 0)
-                target_data['angle'].append(angle)
-                reverse_dir = False
-            
-                if time > 0:
-                    angle_diff = self._angle_difference(target_data['angle'][time-1], angle)
-                    action = determine_action(distance, angle_diff)
-                else:
-                    action = "STOP"  # First frame, no movement
+        # Iterate over the trail using the time delta dt
+        while time < len(trail) - dt:
+            # Calculate the positions at the current and next time steps
+            x, y = trail[time]
+            dtx, dty = trail[time + dt]
 
+            # Calculate distance and angle to the next position
+            distance = math.sqrt((dtx - x) ** 2 + (dty - y) ** 2)
+            target_theta = math.atan2(dty - y, dtx - x)
+
+            # Determine the angle difference from the previous step
+            if time > 0:
+                prev_theta = target_data['angle'][-1]
+                angle_diff = self._angle_difference(prev_theta, target_theta)
+            else:
+                angle_diff = 0
+
+            # Determine the action based on distance and angle difference
+            action = determine_action(distance, angle_diff)
+
+            # Append calculated values to target_data for each time step within dt
+            for _ in range(dt):
+                target_data['distance'].append(distance / dt)
+                target_data['angle'].append(target_theta)
                 target_data['action'].append(action)
-                time += 1
-        
-            # time += interval
-        
+                target_data['speed'].append(1 / dt)
+
+            # Move to the next time step
+            time += dt
+
         return target_data
 
 
@@ -726,20 +736,37 @@ class AntDynamicsEnv(gym.Env):
         return total_area
 
 
-    def _compare_actions(self, actions, trail, time):
+    def _calculate_action_reward(self, actions, target_trail, time):
         """
-        Compare the agent's current action with the historical action of the target agent.
+        Calculate the reward for a given time step based on the similarity between
+        the agent's actions and the historical actions of the target ant.
         """
-        forward, backward, turn_left, turn_right = actions
-        # Calculate the direction of movement required
-        dx = trail[time+1][0] - trail[time][0]
-        dy = trail[time+1][1] - trail[time][1]
-        # Target direction in radians
-        target_theta = math.atan2(dy, dx) % (2 * math.pi)
-        # Calculate the smallest angle difference (target_theta - current_theta)
-        angle_diff = (target_theta - self.ant.theta) % (2 * math.pi)
+        # Extract the actual action from the target data
+        target_action = self.target_data['action'][time]
 
-        return [forward, backward, turn_left, turn_right]
+        # Extract agent's chosen actions from the outputs
+        forward, backward, turn_left, turn_right = actions
+
+        # Determine the predicted action from agent's outputs based on thresholds
+        action = "STOP"
+        if forward > 0.5 and backward <= 0.5:
+            action = "FORWARD"
+        elif backward > 0.5 and forward <= 0.5:
+            action = "BACKWARD"
+        if turn_left > 0.5 and turn_right <= 0.5:
+            action += "-LEFT"
+        elif turn_right > 0.5 and turn_left <= 0.5:
+            action += "-RIGHT"
+
+        # Reward Calculation
+        if action == target_action:
+            reward = 1.0  # Full reward for an exact match
+        elif action.startswith(target_action.split('-')[0]):
+            reward = 0.5  # Partial reward if the base action is correct but the direction is wrong
+        else:
+            reward = -1.0  # Negative reward for incorrect actions
+
+        return reward
 
 
     def _reward_function(self, actions=None):
@@ -754,10 +781,9 @@ class AntDynamicsEnv(gym.Env):
             )
 
             return reward * -1
+            
         elif REWARD_TYPE.lower() == 'action':
-            return np.mean(self._compare_actions(actions,
-                                         self.target_trail,
-                                         self.t))
+            return self._calculate_action_reward(actions, self.target_trail, self.t)
 
     def get_observations(self, others=None):
         return np.sum(self.ant.get_obs(others))
@@ -815,11 +841,27 @@ class AntDynamicsEnv(gym.Env):
         self.t += 1
 
         # Pygame controls and resources if render_mode == 'human'
-        if self.render_mode == "human": self._render_frame()
+        if self.render_mode == "human":
+            self._render_frame()
 
-        action_set = self.ant.set_action(action)
+        # Implement target_data actions using auto_action controls
+        auto_action = [0, 0, 0, 0]  # [FORWARD, BACKWARD, TURN_LEFT, TURN_RIGHT]
+        target_action = self.target_data['action'][self.t]
+
+        if "FORWARD" in target_action:
+            auto_action[0] = 1
+        elif "BACKWARD" in target_action:
+            auto_action[1] = 1
+
+        if "LEFT" in target_action:
+            auto_action[2] = 1
+        elif "RIGHT" in target_action:
+            auto_action[3] = 1
+
+        action_set = self.ant.set_action(auto_action)
+        print(target_action, auto_action)
         self.ant.update(self.ant_arena)
-        obs = self.get_observations(self.other_ants[:,self.t])
+        obs = self.get_observations(self.other_ants[:, self.t])
         self._track_trail(self.ant.pos)
 
         if self.t >= self.t_limit:
