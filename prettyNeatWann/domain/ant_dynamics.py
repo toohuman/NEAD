@@ -41,7 +41,7 @@ vec2d = namedtuple('vec2d', ['x', 'y'])
 # Global parameters for agent control
 TIMESTEP = 1./SIM_FPS       # Not sure if this will be necessary, given the fixed FPS?
 # TIME_LIMIT = SIM_FPS * 60   # 60 seconds
-TIME_LIMIT = SIM_FPS * 120   # 60 seconds
+TIME_LIMIT = SIM_FPS * 60   # 60 seconds
 
 ANT_DIM = vec2d(5, 5)
 AGENT_SPEED = 25*3.25       # Taken from slimevolley, will need to adjust based on feeling
@@ -403,20 +403,6 @@ class Ant():
         # If leaving the cirle, push agent back into circle.
         if is_rectangle_in_circle(desired_pos[0], desired_pos[1], arena[0], arena[1]):
             self.pos = vec2d(desired_pos[0], desired_pos[1])
-        # Otherwise, slightly adjust the agent's angle theta towards tangent at the
-        # circle's circumference.
-        # else:
-        #     # Calculate the angle from the center of the circle to the agent
-        #     angle_to_center = math.atan2(self.pos.y - arena[0][1], self.pos.x - arena[0][0])
-        #     if angle_to_center < 0: angle_to_center += math.pi
-        #     if (self.theta >= angle_to_center) and (self.theta < angle_to_center + math.pi):
-        #         d_theta = math.pi / 2 - self.desired_turn_speed
-        #     elif (self.theta < angle_to_center) or (self.theta >= angle_to_center - math.pi):
-        #         d_theta = -math.pi / 2 + self.desired_turn_speed
-
-        #     theta = self.theta + d_theta * TIMESTEP
-        #     theta = theta % (2 * math.pi)
-        #     self.theta = theta
 
 
     def set_action(self, action):
@@ -444,7 +430,7 @@ class Ant():
             self.turning_time_right = 0.0       # Reset right turn time
             # Scale the turn rate based on how long we've been turning
             scale_factor = min(self.turning_time_left / self.max_turn_duration, 1.0)
-            self.desired_turn_speed = -TURN_RATE * scale_factor
+            self.desired_turn_speed = -TURN_RATE# * scale_factor
 
         # Turn right
         if turn_right and not turn_left:
@@ -452,7 +438,7 @@ class Ant():
             self.turning_time_left = 0.0         # Reset left turn time
             # Scale the turn rate based on how long we've been turning
             scale_factor = min(self.turning_time_right / self.max_turn_duration, 1.0)
-            self.desired_turn_speed = TURN_RATE * scale_factor
+            self.desired_turn_speed = TURN_RATE# * scale_factor
 
         # If no turn, reset the turn timers
         if not turn_left and not turn_right:
@@ -474,7 +460,7 @@ class Ant():
 
 
     def update(self, arena, noise=0.0):
-        self.pos   = vec2d(
+        self.pos = vec2d(
             self.pos.x + np.random.randn() * noise,
             self.pos.y - np.random.randn() * noise
         )
@@ -640,22 +626,13 @@ class AntDynamicsEnv(gym.Env):
         if diff > math.pi:
             diff -= 2 * math.pi
         return diff
-
+    
 
     def _calculate_target_data(self, trail):
         target_data = {
             'angle': [],
             'distance': [],
             'action': []
-        }
-        time = 0
-
-    def _calculate_target_data(self, trail):
-        target_data = {
-            'angle': [],
-            'distance': [],
-            'action': [],
-            'speed': []
         }
         
         dt = 5  # Set a reasonable time delta larger than the 1/30 timestep
@@ -696,9 +673,8 @@ class AntDynamicsEnv(gym.Env):
             # Append calculated values to target_data for each time step within dt
             for _ in range(dt):
                 target_data['distance'].append(distance / dt)
-                target_data['angle'].append(target_theta)
+                target_data['angle'].append(angle_diff / dt)
                 target_data['action'].append(action)
-                target_data['speed'].append(1 / dt)
 
             # Move to the next time step
             time += dt
@@ -859,7 +835,7 @@ class AntDynamicsEnv(gym.Env):
             auto_action[3] = 1
 
         action_set = self.ant.set_action(auto_action)
-        print(target_action, auto_action)
+        print(self.target_data['distance'][self.t], self.target_data['angle'][self.t], self.target_data['action'][self.t])
         self.ant.update(self.ant_arena)
         obs = self.get_observations(self.other_ants[:, self.t])
         self._track_trail(self.ant.pos)
