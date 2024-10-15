@@ -44,8 +44,9 @@ TIMESTEP = 1./SIM_FPS       # Not sure if this will be necessary, given the fixe
 TIME_LIMIT = SIM_FPS * 60   # 60 seconds
 
 ANT_DIM = vec2d(5, 5)
-AGENT_SPEED = 25*3.25       # Taken from slimevolley, will need to adjust based on feeling
-TURN_RATE = 200 * 2 * math.pi / 360
+# Adjusted global parameters
+AGENT_SPEED = 50 * 1.0
+TURN_RATE = 50 * 2 * math.pi / 360
 VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
 DRAW_ANT_VISION = True
@@ -622,33 +623,74 @@ class AntDynamicsEnv(gym.Env):
 
 
     def _angle_difference(self, angle1, angle2):
+        """
+        Calculate the smallest difference between two angles (radians).
+        """
         diff = (angle2 - angle1) % (2 * math.pi)
         if diff > math.pi:
             diff -= 2 * math.pi
         return diff
-    
+
 
     def _calculate_target_data(self, trail):
         target_data = {
             'angle': [],
             'distance': [],
-            'action': []
+            'action': [],
+            'speed_scale': [],
+            'turn_scale': []
         }
         
-        dt = 5  # Set a reasonable time delta larger than the 1/30 timestep
+        dt = 1  # Further reduce the time delta for more frequent updates
         time = 0
 
-        def determine_action(distance, angle_diff):
+        # Define threshold for stopping, moving, and turning
+        stop_distance_threshold = 1e-1
+        stop_angle_threshold = 0.15
+
+        def determine_action(distance, angle_diff, red_agent_moving):
             base_action = "STOP"
             turn_direction = ""
 
-            if distance > 0:
-                base_action = "FORWARD" if abs(angle_diff) <= math.pi else "BACKWARD"
+            # Sync stop with target if target isn't moving
+            if not red_agent_moving:
+                base_action = "STOP"
+            elif distance > stop_distance_threshold or abs(angle_diff) > stop_angle_threshold:
+                # Prefer moving forward unless a significant turn is required
+                if abs(angle_diff) < math.pi / 3:
+                    base_action = "FORWARD"
+                else:
+                    base_action = "TURN"
 
-            if angle_diff != 0:
+            # Determine turning state based on angle difference
+            turn_tolerance = 0.4
+            if abs(angle_diff) > turn_tolerance:
                 turn_direction = "-RIGHT" if angle_diff > 0 else "-LEFT"
 
             return f"{base_action}{turn_direction}".strip()
+
+        def determine_scaling_factors(action):
+            # If the action is to STOP, set speed and turn scales to 0
+            if "STOP" in action:
+                speed_scale = 0.0
+                turn_scale = 0.0
+            elif "TURN" in action:
+                if "FORWARD" not in action:
+                    speed_scale = 0.0  # No forward movement while turning in place
+                    turn_scale = 1.5  # Sharper turn rate for stationary turns
+                else:
+                    speed_scale = 0.1  # Allow slight forward movement during turns for dynamic turning
+                    turn_scale = 1.0
+            else:
+                # If moving forward, set speed to maximum
+                speed_scale = 1.0 if "FORWARD" in action else 0.0
+                # If turning, set turn scale to a fixed value
+                turn_scale = 0.7 if "LEFT" in action or "RIGHT" in action else 0.0
+
+            return speed_scale, turn_scale
+
+        burst_duration_turn = 2  # Very short burst duration for more responsive turns
+        burst_duration_forward = 4  # Shorter burst duration for forward movement for more discrete behavior
 
         # Iterate over the trail using the time delta dt
         while time < len(trail) - dt:
@@ -660,6 +702,9 @@ class AntDynamicsEnv(gym.Env):
             distance = math.sqrt((dtx - x) ** 2 + (dty - y) ** 2)
             target_theta = math.atan2(dty - y, dtx - x)
 
+            # Determine if the red agent is moving by comparing consecutive positions
+            red_agent_moving = distance > stop_distance_threshold
+
             # Determine the angle difference from the previous step
             if time > 0:
                 prev_theta = target_data['angle'][-1]
@@ -667,16 +712,30 @@ class AntDynamicsEnv(gym.Env):
             else:
                 angle_diff = 0
 
-            # Determine the action based on distance and angle difference
-            action = determine_action(distance, angle_diff)
+            # Directly use the angle difference without smoothing
+            smoothed_angle_diff = angle_diff  # No smoothing
 
-            # Append calculated values to target_data for each time step within dt
-            for _ in range(dt):
-                target_data['distance'].append(distance / dt)
-                target_data['angle'].append(angle_diff / dt)
+            # Determine the action based on distance, angle difference, and if the red agent is moving
+            action = determine_action(distance, smoothed_angle_diff, red_agent_moving)
+
+            # Calculate scaling factors based on the action
+            speed_scale, turn_scale = determine_scaling_factors(action)
+
+            # Use different burst durations depending on the action
+            if "TURN" in action:
+                burst_duration = burst_duration_turn
+            else:
+                burst_duration = burst_duration_forward
+
+            # Append calculated values to target_data for each time step within burst duration
+            for _ in range(burst_duration):
+                target_data['distance'].append(distance / burst_duration)
+                target_data['angle'].append(smoothed_angle_diff / burst_duration)
                 target_data['action'].append(action)
+                target_data['speed_scale'].append(speed_scale)
+                target_data['turn_scale'].append(turn_scale)
 
-            # Move to the next time step
+            # Move to the next time step after the burst duration
             time += dt
 
         return target_data
@@ -824,6 +883,7 @@ class AntDynamicsEnv(gym.Env):
         auto_action = [0, 0, 0, 0]  # [FORWARD, BACKWARD, TURN_LEFT, TURN_RIGHT]
         target_action = self.target_data['action'][self.t]
 
+        # Set the action based on the target_data
         if "FORWARD" in target_action:
             auto_action[0] = 1
         elif "BACKWARD" in target_action:
@@ -834,24 +894,57 @@ class AntDynamicsEnv(gym.Env):
         elif "RIGHT" in target_action:
             auto_action[3] = 1
 
+        # Proportional control for speed and turning rate
+        # Apply scaling factors from target_data with damping and proportional control
+        distance_to_target = self.target_data['distance'][self.t]
+        angle_to_target = self.target_data['angle'][self.t]
+
+        # Set proportional speed and turning rate adjustments
+        k_speed = 0.5  # Proportional gain for speed
+        k_turn = 0.3   # Proportional gain for turn rate
+
+        speed_scale = min(k_speed * distance_to_target / (AGENT_SPEED * TIMESTEP), 1.0)
+        turn_scale = min(k_turn * abs(angle_to_target) / TURN_RATE, 1.0)
+
+        # Set the agent's desired speed and turn rate with scaling
+        self.ant.desired_speed = AGENT_SPEED * speed_scale if auto_action[0] or auto_action[1] else 0
+        if auto_action[1]:  # BACKWARD movement
+            self.ant.desired_speed = -self.ant.desired_speed
+
+        if auto_action[2]:  # TURN LEFT
+            self.ant.desired_turn_speed = -TURN_RATE * turn_scale
+        elif auto_action[3]:  # TURN RIGHT
+            self.ant.desired_turn_speed = TURN_RATE * turn_scale
+        else:
+            self.ant.desired_turn_speed = 0
+
+        # Update ant position and orientation
         action_set = self.ant.set_action(auto_action)
-        print(self.target_data['distance'][self.t], self.target_data['angle'][self.t], self.target_data['action'][self.t])
         self.ant.update(self.ant_arena)
+
+        # Log current action and corresponding data
+        print(f"Distance: {self.target_data['distance'][self.t]:.2f}, Angle: {self.target_data['angle'][self.t]:.2f}, Action: {self.target_data['action'][self.t]}")
+
+        # Get observations of other ants in the arena
         obs = self.get_observations(self.other_ants[:, self.t])
         self._track_trail(self.ant.pos)
 
+        # Determine if the episode is done
         if self.t >= self.t_limit:
             done = True
 
-        info = {}
-
+        # Initialize reward value
         reward = 0
         if done and REWARD_TYPE == 'trail':
             reward = self._reward_function()
         if REWARD_TYPE == 'action':
             reward = self._reward_function(action_set)
 
+        # Additional information (if necessary)
+        info = {}
+
         return obs, reward, done, info
+
 
 
     def render(self, mode=None):
