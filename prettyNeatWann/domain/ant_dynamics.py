@@ -30,8 +30,6 @@ else:
 VIDEO_FPS = 60     # Source data FPS (60Hz)
 SIM_FPS = 30    # Simulation environment FPS
 
-INITIAL_RANDOM = 5
-
 SCREEN_W = 900
 SCREEN_H = 900
 BOUNDARY_SCALE = 0.02
@@ -44,9 +42,8 @@ TIMESTEP = 1./SIM_FPS       # Not sure if this will be necessary, given the fixe
 TIME_LIMIT = SIM_FPS * 60   # 60 seconds
 
 ANT_DIM = vec2d(5, 5)
-# Adjusted global parameters
-AGENT_SPEED = 50 * 1.0
-TURN_RATE = 50 * 2 * math.pi / 360
+AGENT_SPEED = 10 * 3.25  # Reduced speed for better alignment with target
+TURN_RATE = 10 * math.pi / 360  # Reduced turn rate for smoother movement
 VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
 DRAW_ANT_VISION = True
@@ -80,7 +77,7 @@ FADE_DURATION = 5 # seconds
 #          Assistance functions          #
 ##########################################
 
-FILE_PREFIX = "KA050_10cm_5h_20230614"
+FILE_PREFIX = "KA050_10cm_5h_20230614_angles"
 PP_FILE_PREFIX = "KA050_processed"
 OUTPUT_FILE = '_'.join([PP_FILE_PREFIX, *FILE_PREFIX.split('_')[1:]]) + '.pkl.xz'
 
@@ -96,7 +93,7 @@ def load_data(source_dir, scale = None, arena_dim = None):
         return load_combined_files(source_dir, arena_dim, scale)
 
 
-def process_data(data, arena_dim):
+def translate_data_to_sim_space(data, arena_dim):
     data_len = len(data)
     logger.info(msg=f"Ant trail data loaded. Total records: {data_len}")
     arena_bb = find_bounding_box(data)
@@ -115,6 +112,92 @@ def process_data(data, arena_dim):
     return data
 
 
+def add_theta_and_smoothed_theta(df, window_size=20, smoothed_suffix='smoothed_theta'):
+    """
+    Calculate theta and smoothed_theta for each individual and interleave them correctly.
+
+    Parameters:
+    - df (pd.DataFrame): DataFrame with MultiIndex columns [individual, x/y/theta].
+    - window_size (int): Number of frames for the sliding window to compute smoothed_theta.
+    - smoothed_suffix (str): Suffix for the smoothed_theta column.
+
+    Returns:
+    - pd.DataFrame: DataFrame with [x, y, theta, smoothed_theta] for each individual.
+    """
+    # Ensure the DataFrame has MultiIndex columns
+    if not isinstance(df.columns, pd.MultiIndex):
+        raise ValueError("DataFrame columns must be a MultiIndex with levels: [individual, coordinate].")
+
+    # Extract unique individuals
+    individuals = df.columns.get_level_values(0).unique()
+
+    # Iterate in reverse order to prevent shifting column indices during insertion
+    for individual in reversed(individuals):
+        # Check if 'x' and 'y' columns exist for the individual
+        if ('x' not in df[individual].columns) or ('y' not in df[individual].columns):
+            print(f"Individual {individual} does not have both 'x' and 'y' columns. Skipping.")
+            continue
+
+        # Extract x and y coordinates
+        x = df[individual, 'x']
+        y = df[individual, 'y']
+
+        # Calculate differences between consecutive positions
+        dx = x.shift(-1) - x
+        dy = y.shift(-1) - y
+
+        # Invert dy for Pygame's coordinate system (y increases downward)
+        dy_inverted = -dy
+
+        # Calculate theta using arctan2
+        theta = np.arctan2(dy_inverted, dx)
+
+        # Normalize theta to be within [0, 2*pi)
+        theta_normalized = theta % (2 * math.pi)
+
+        # Define the new theta column tuple
+        theta_col = (individual, 'theta')
+
+        # Find the position to insert theta (after 'y')
+        try:
+            y_col = (individual, 'y')
+            y_col_index = list(df.columns).index(y_col)
+            df.insert(y_col_index + 1, theta_col, theta_normalized)
+        except ValueError:
+            print(f"Column {y_col} not found for individual {individual}. Skipping theta insertion.")
+            continue
+
+        # Extract the newly inserted theta column
+        theta_series = df[individual, 'theta']
+
+        # Handle missing values: forward-fill then backward-fill
+        theta_filled = theta_series.fillna(method='ffill').fillna(method='bfill')
+
+        # Convert theta to sine and cosine components
+        sin_theta = np.sin(theta_filled)
+        cos_theta = np.cos(theta_filled)
+
+        # Compute rolling (sliding window) average of sine and cosine
+        sin_avg = sin_theta.rolling(window=window_size, min_periods=1).mean()
+        cos_avg = cos_theta.rolling(window=window_size, min_periods=1).mean()
+
+        # Reconstruct the smoothed theta using arctan2 of averaged sine and cosine
+        theta_smoothed = np.arctan2(sin_avg, cos_avg) % (2 * math.pi)
+
+        # Define the new smoothed_theta column tuple
+        smoothed_theta_col = (individual, smoothed_suffix)
+
+        # Insert the smoothed_theta column immediately after the theta column
+        try:
+            theta_col_index = list(df.columns).index(theta_col)
+            df.insert(theta_col_index + 1, smoothed_theta_col, theta_smoothed)
+        except ValueError:
+            print(f"Column {theta_col} not found for individual {individual}. Skipping smoothed_theta insertion.")
+            continue
+
+    return df
+
+
 def load_combined_files(source_dir, arena_dim, scale = None):
     input_files = []
     data = []
@@ -127,7 +210,8 @@ def load_combined_files(source_dir, arena_dim, scale = None):
         with lzma.open(os.path.join(source_dir, input_file)) as file:
             data.append(pd.read_pickle(file))
 
-    data = process_data(pd.concat(data, ignore_index=True), arena_dim)
+    data = translate_data_to_sim_space(pd.concat(data, ignore_index=True), arena_dim)
+    data = add_theta_and_smoothed_theta(data)
     data.to_pickle(os.path.join(source_dir, OUTPUT_FILE), compression='xz')
 
     return data.iloc[::int(scale)] if scale else data
@@ -253,10 +337,10 @@ def is_rectangle_in_circle(x, y, circle_center, circle_radius):
 class Ant():
     """Agent class for the ant"""
 
-    def __init__(self, pos):
+    def __init__(self, pos, theta = None):
         self.pos = vec2d(*pos)
         self.speed = 0.0
-        self.theta = 0.0
+        self.theta = theta if theta is not None else 0.0
         self.theta_dot = 0.0
         self.trail = []
 
@@ -388,7 +472,7 @@ class Ant():
 
 
     def _turn(self):
-        self.theta += self.theta_dot * TIMESTEP
+        self.theta += self.theta_dot
         self.theta = self.theta % (2 * math.pi)
 
 
@@ -398,7 +482,7 @@ class Ant():
         and angle theta using matrix multiplication.
         """
         # Calculate the desired direction of travel (rotate to angle theta)
-        direction = np.array([np.cos(self.theta), np.sin(self.theta)]) * self.desired_speed * TIMESTEP
+        direction = np.array([np.cos(self.theta), np.sin(self.theta)]) * self.desired_speed
         # Set the desired position based on direction and speed relative to timestep
         desired_pos = np.add(np.array(self.pos), direction)
         # If leaving the cirle, push agent back into circle.
@@ -406,7 +490,7 @@ class Ant():
             self.pos = vec2d(desired_pos[0], desired_pos[1])
 
 
-    def set_action(self, action):
+    def set_action(self, action, distance=None, rotation=None):
         forward    = False
         backward   = False
         turn_left  = False
@@ -421,25 +505,31 @@ class Ant():
         self.desired_turn_speed = 0
 
         if (forward and (not backward)):
-            self.desired_speed = AGENT_SPEED
+            # self.desired_speed = AGENT_SPEED # * TIMESTEP
+            self.desired_speed = distance
         if (backward and (not forward)):
-            self.desired_speed = -AGENT_SPEED
+            # self.desired_speed = -AGENT_SPEED # * TIMESTEP
+            self.desired_speed = distance
 
         # Turn left
-        if turn_left and not turn_right:
-            self.turning_time_left += TIMESTEP  # Increase time turning left
-            self.turning_time_right = 0.0       # Reset right turn time
-            # Scale the turn rate based on how long we've been turning
-            scale_factor = min(self.turning_time_left / self.max_turn_duration, 1.0)
-            self.desired_turn_speed = -TURN_RATE# * scale_factor
+        # if turn_left and not turn_right:
+        #     self.turning_time_left += TIMESTEP  # Increase time turning left
+        #     self.turning_time_right = 0.0       # Reset right turn time
+        #     # Scale the turn rate based on how long we've been turning
+        #     scale_factor = min(self.turning_time_left / self.max_turn_duration, 1.0)
+        #     # self.desired_turn_speed = -TURN_RATE# * scale_factor
+        #     self.desired_turn_speed = -rotation
 
-        # Turn right
-        if turn_right and not turn_left:
-            self.turning_time_right += TIMESTEP  # Increase time turning right
-            self.turning_time_left = 0.0         # Reset left turn time
-            # Scale the turn rate based on how long we've been turning
-            scale_factor = min(self.turning_time_right / self.max_turn_duration, 1.0)
-            self.desired_turn_speed = TURN_RATE# * scale_factor
+        # # Turn right
+        # if turn_right and not turn_left:
+        #     self.turning_time_right += TIMESTEP  # Increase time turning right
+        #     self.turning_time_left = 0.0         # Reset left turn time
+        #     # Scale the turn rate based on how long we've been turning
+        #     scale_factor = min(self.turning_time_right / self.max_turn_duration, 1.0)
+        #     # self.desired_turn_speed = TURN_RATE# * scale_factor
+        #     self.desired_turn_speed = rotation
+        # print(rotation)
+        self.theta = rotation
 
         # If no turn, reset the turn timers
         if not turn_left and not turn_right:
@@ -471,7 +561,7 @@ class Ant():
         self.speed = self.desired_speed
         self.theta_dot = self.desired_turn_speed
 
-        self._turn()
+        # self._turn()
         self._move(arena)
 
 
@@ -484,7 +574,8 @@ class AntDynamicsEnv(gym.Env):
     ant_trail_data = None
 
     def __init__(self, render_mode=None):
-        self.force_mag = 10.0
+        self.np_random, seed = self.seed(seed=69)
+
         self.ant = None
         self.ant_trail = None
 
@@ -492,14 +583,14 @@ class AntDynamicsEnv(gym.Env):
         self.target_data = None
 
         self.other_ants = None
-
-        self.seed()
         self.viewer = None
         self.state = None
         self.noise = 0
 
         self.t = 0
         self.t_limit = TIME_LIMIT
+
+        self.actions = []
 
         assert render_mode is None or render_mode in type(self).metadata["render_modes"]
         self.render_mode = render_mode
@@ -530,8 +621,7 @@ class AntDynamicsEnv(gym.Env):
 
 
     def seed(self, seed=None):
-        self.np_random, seed = seeding.np_random(seed)
-        return [seed]
+        return seeding.np_random(seed)
 
 
     def _get_ant_trails(self):
@@ -550,19 +640,19 @@ class AntDynamicsEnv(gym.Env):
         into the ant's internal state.
         """
         trail_length = int(trail_len)+2
-        target = np.zeros((trail_length, 2), dtype=float)
+        target = np.zeros((trail_length, 4), dtype=float)
         trail_data = type(self).ant_trail_data
         num_ants = len(trail_data.columns.levels[0])
         # If showing positions of other ants during the trail
         other_ants = None
         if others:
             other_ants = np.zeros(
-                (num_ants - 1, trail_length, 2),
+                (num_ants - 1, trail_length, 4),
                 dtype=float
             )
 
-        start = np.random.randint(len(trail_data) - trail_length)
-        indices = list(np.random.permutation(num_ants))
+        start = self.np_random.integers(len(trail_data) - trail_length)
+        indices = list(self.np_random.permutation(num_ants))
         indices_set = set(indices)
         contains_null = True
         while contains_null and len(indices) > 0:
@@ -591,7 +681,13 @@ class AntDynamicsEnv(gym.Env):
                 other_ants[trail_index][0:trail_length] = trail_data[other_ant_index][start:start + trail_length]
                 trail_index += 1
 
-        return Ant(target[0]), target, other_ants
+        # Return the agent initialised at the target's starting (x, y) and smoothed_theta
+        # target trail's (x, y) and theta, smoothed_theta
+        # other_ants' (x, y) and theta, smoothed_theta
+
+        return  Ant(target[0,0:2], target[0,3]),\
+            target[:,0:2], target[:,2:4],\
+            other_ants[:,:,0:2], other_ants[:,:,2:4]
 
 
     def _get_interval_data(self, trail, start_time, interval=False):
@@ -636,107 +732,46 @@ class AntDynamicsEnv(gym.Env):
         target_data = {
             'angle': [],
             'distance': [],
-            'action': [],
-            'speed_scale': [],
-            'turn_scale': []
+            'action': [],    # FORWARD, BACKWARD, TURN-LEFT, TURN-RIGHT, STOP, ...
         }
-        
-        dt = 1  # Further reduce the time delta for more frequent updates
+
         time = 0
-
-        # Define threshold for stopping, moving, and turning
-        stop_distance_threshold = 1e-1
-        stop_angle_threshold = 0.15
-
-        def determine_action(distance, angle_diff, red_agent_moving):
-            base_action = "STOP"
-            turn_direction = ""
-
-            # Sync stop with target if target isn't moving
-            if not red_agent_moving:
-                base_action = "STOP"
-            elif distance > stop_distance_threshold or abs(angle_diff) > stop_angle_threshold:
-                # Prefer moving forward unless a significant turn is required
-                if abs(angle_diff) < math.pi / 3:
-                    base_action = "FORWARD"
-                else:
-                    base_action = "TURN"
-
-            # Determine turning state based on angle difference
-            turn_tolerance = 0.4
-            if abs(angle_diff) > turn_tolerance:
-                turn_direction = "-RIGHT" if angle_diff > 0 else "-LEFT"
-
-            return f"{base_action}{turn_direction}".strip()
-
-        def determine_scaling_factors(action):
-            # If the action is to STOP, set speed and turn scales to 0
-            if "STOP" in action:
-                speed_scale = 0.0
-                turn_scale = 0.0
-            elif "TURN" in action:
-                if "FORWARD" not in action:
-                    speed_scale = 0.0  # No forward movement while turning in place
-                    turn_scale = 1.5  # Sharper turn rate for stationary turns
-                else:
-                    speed_scale = 0.1  # Allow slight forward movement during turns for dynamic turning
-                    turn_scale = 1.0
-            else:
-                # If moving forward, set speed to maximum
-                speed_scale = 1.0 if "FORWARD" in action else 0.0
-                # If turning, set turn scale to a fixed value
-                turn_scale = 0.7 if "LEFT" in action or "RIGHT" in action else 0.0
-
-            return speed_scale, turn_scale
-
-        burst_duration_turn = 2  # Very short burst duration for more responsive turns
-        burst_duration_forward = 4  # Shorter burst duration for forward movement for more discrete behavior
-
-        # Iterate over the trail using the time delta dt
-        while time < len(trail) - dt:
-            # Calculate the positions at the current and next time steps
-            x, y = trail[time]
-            dtx, dty = trail[time + dt]
+        while time < len(trail) - 1:
+            # Calculate current and next position
+            current_pos = trail[int(time)]
+            next_pos = trail[int(time) + 1]
 
             # Calculate distance and angle to the next position
-            distance = math.sqrt((dtx - x) ** 2 + (dty - y) ** 2)
-            target_theta = math.atan2(dty - y, dtx - x)
+            dx = next_pos[0] - current_pos[0]
+            dy = next_pos[1] - current_pos[1]
+            distance = math.sqrt(dx**2 + dy**2)
+            angle_to_target = math.atan2(dy, dx)
 
-            # Determine if the red agent is moving by comparing consecutive positions
-            red_agent_moving = distance > stop_distance_threshold
+            # Determine angle difference from current orientation
+            angle_diff = self._angle_difference(self.ant.theta, angle_to_target)
 
-            # Determine the angle difference from the previous step
-            if time > 0:
-                prev_theta = target_data['angle'][-1]
-                angle_diff = self._angle_difference(prev_theta, target_theta)
+            # Determine the action required to move towards the next position
+            action = None
+            if distance > 0.05:
+                action = "FORWARD"
             else:
-                angle_diff = 0
+                action = "STOP"
+            
+            if action is None:
+                action = "TURN"
+            if abs(angle_diff) > 0.02:  # Further reduce the turning threshold for finer control  # Reduce the turning threshold
+                if angle_diff > 0:
+                    action += "-RIGHT"
+                else:
+                    action = "-LEFT"
 
-            # Directly use the angle difference without smoothing
-            smoothed_angle_diff = angle_diff  # No smoothing
+            # Append calculated values to target_data for each time step
+            target_data['distance'].append(distance)
+            target_data['angle'].append(angle_diff)
+            target_data['action'].append(action)
 
-            # Determine the action based on distance, angle difference, and if the red agent is moving
-            action = determine_action(distance, smoothed_angle_diff, red_agent_moving)
-
-            # Calculate scaling factors based on the action
-            speed_scale, turn_scale = determine_scaling_factors(action)
-
-            # Use different burst durations depending on the action
-            if "TURN" in action:
-                burst_duration = burst_duration_turn
-            else:
-                burst_duration = burst_duration_forward
-
-            # Append calculated values to target_data for each time step within burst duration
-            for _ in range(burst_duration):
-                target_data['distance'].append(distance / burst_duration)
-                target_data['angle'].append(smoothed_angle_diff / burst_duration)
-                target_data['action'].append(action)
-                target_data['speed_scale'].append(speed_scale)
-                target_data['turn_scale'].append(turn_scale)
-
-            # Move to the next time step after the burst duration
-            time += dt
+            # Move to the next time step (smaller increment for finer control)
+            time += 1
 
         return target_data
 
@@ -832,7 +867,9 @@ class AntDynamicsEnv(gym.Env):
         self.ant = None
         self.ant_trail = []
         self.target_trail = []
-        self.other_ants = None
+        self.target_angles = []
+        self.other_ants = []
+        self.other_ants_angles = []
 
         self.viewer = None
         self.state = None
@@ -847,12 +884,17 @@ class AntDynamicsEnv(gym.Env):
         self.t = 0      # timestep reset
         self.steps_beyond_done = None
 
-        self.ant, self.target_trail, self.other_ants = self._select_target(
-            others=True,
-            trail_len=TIME_LIMIT
-        )
+        self.actions = []
+
+        self.ant,\
+            self.target_trail, self.target_angles,\
+                self.other_ants, self.other_ants_angles = \
+                    self._select_target(
+                        others=True,
+                        trail_len=TIME_LIMIT
+                    )
         self.target_data = self._calculate_target_data(self.target_trail)
-        self.ant.theta = self._get_angle_from_trajectory(self.target_trail, self.t)
+        # self.ant.theta = self._get_angle_from_trajectory(self.target_trail, self.t)
         obs = self.get_observations(self.other_ants[:,self.t])
 
         if self.render_mode == 'human':
@@ -865,6 +907,47 @@ class AntDynamicsEnv(gym.Env):
         if self.window is not None:
             pygame.display.quit()
             pygame.quit()
+
+
+    def _get_action(self, dt):
+
+        target_data = {
+            'angle': [],
+            'distance': [],
+            'action': [],    # FORWARD, BACKWARD, TURN-LEFT, TURN-RIGHT, STOP, ...
+        }
+
+        action = [0, 0, 0, 0]
+        info =  {'distance': 0, 'target_angle': 0, 'rotation': 0}
+        time = 0
+        while self.t + time < len(self.target_trail) - 1 and time < dt:
+            # Calculate current and next position
+            current_pos = self.target_trail[self.t + int(time)]
+            next_pos = self.target_trail[self.t + int(time) + 1]
+
+            # Calculate distance and angle to the next position
+            dx = next_pos[0] - current_pos[0]
+            dy = next_pos[1] - current_pos[1]
+            distance = math.sqrt(dx**2 + dy**2)
+            info['distance'] = distance
+            angle_to_target = math.atan2(dy, dx)
+            info['target_angle'] = angle_to_target
+
+            # Determine angle difference from current orientation
+            angle_diff = self._angle_difference(self.ant.theta, angle_to_target)
+            info['rotation'] = angle_diff
+
+            if distance > 0.05:
+                action[0] = 1
+
+            if angle_diff < 0:
+                action[2] = 1
+            elif angle_diff > 0:
+                action[3] = 1
+
+            time += 1
+        
+        return action, info
 
 
     def step(self, action):
@@ -881,49 +964,13 @@ class AntDynamicsEnv(gym.Env):
 
         # Implement target_data actions using auto_action controls
         auto_action = [0, 0, 0, 0]  # [FORWARD, BACKWARD, TURN_LEFT, TURN_RIGHT]
-        target_action = self.target_data['action'][self.t]
+        # target_action = self.target_data['action'][int(self.t * 2)]  # Adjust indexing for smaller time increment
 
-        # Set the action based on the target_data
-        if "FORWARD" in target_action:
-            auto_action[0] = 1
-        elif "BACKWARD" in target_action:
-            auto_action[1] = 1
-
-        if "LEFT" in target_action:
-            auto_action[2] = 1
-        elif "RIGHT" in target_action:
-            auto_action[3] = 1
-
-        # Proportional control for speed and turning rate
-        # Apply scaling factors from target_data with damping and proportional control
-        distance_to_target = self.target_data['distance'][self.t]
-        angle_to_target = self.target_data['angle'][self.t]
-
-        # Set proportional speed and turning rate adjustments
-        k_speed = 0.5  # Proportional gain for speed
-        k_turn = 0.3   # Proportional gain for turn rate
-
-        speed_scale = min(k_speed * distance_to_target / (AGENT_SPEED * TIMESTEP), 1.0)
-        turn_scale = min(k_turn * abs(angle_to_target) / TURN_RATE, 1.0)
-
-        # Set the agent's desired speed and turn rate with scaling
-        self.ant.desired_speed = AGENT_SPEED * speed_scale if auto_action[0] or auto_action[1] else 0
-        if auto_action[1]:  # BACKWARD movement
-            self.ant.desired_speed = -self.ant.desired_speed
-
-        if auto_action[2]:  # TURN LEFT
-            self.ant.desired_turn_speed = -TURN_RATE * turn_scale
-        elif auto_action[3]:  # TURN RIGHT
-            self.ant.desired_turn_speed = TURN_RATE * turn_scale
-        else:
-            self.ant.desired_turn_speed = 0
-
-        # Update ant position and orientation
-        action_set = self.ant.set_action(auto_action)
+        # Update the ant position and orientation with the calculated distance and rotation
+        auto_action, movement_info = self._get_action(1)
+        print(self.target_angles[self.t])
+        self.ant.set_action(auto_action, movement_info['distance'], movement_info['target_angle'])
         self.ant.update(self.ant_arena)
-
-        # Log current action and corresponding data
-        print(f"Distance: {self.target_data['distance'][self.t]:.2f}, Angle: {self.target_data['angle'][self.t]:.2f}, Action: {self.target_data['action'][self.t]}")
 
         # Get observations of other ants in the arena
         obs = self.get_observations(self.other_ants[:, self.t])
@@ -938,13 +985,12 @@ class AntDynamicsEnv(gym.Env):
         if done and REWARD_TYPE == 'trail':
             reward = self._reward_function()
         if REWARD_TYPE == 'action':
-            reward = self._reward_function(action_set)
+            reward = self._reward_function(auto_action)
 
         # Additional information (if necessary)
         info = {}
 
         return obs, reward, done, info
-
 
 
     def render(self, mode=None):
