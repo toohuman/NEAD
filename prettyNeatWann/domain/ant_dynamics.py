@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import pygame
 import random
+import h5py
 import lzma
 import os
 
@@ -77,9 +78,12 @@ FADE_DURATION = 5 # seconds
 #          Assistance functions          #
 ##########################################
 
-FILE_PREFIX = "KA050_10cm_5h_20230614_angles"
+FILE_PREFIX = "KA050_10cm_5h_20230614"
+FILE_SUFFIX = "angles"
+# FILE_SUFFIX = "smoothed"
 PP_FILE_PREFIX = "KA050_processed"
-OUTPUT_FILE = '_'.join([PP_FILE_PREFIX, *FILE_PREFIX.split('_')[1:]]) + '.pkl.xz'
+OUTPUT_FILE = '_'.join([PP_FILE_PREFIX, *FILE_PREFIX.split('_')[1:], FILE_SUFFIX]) + '.pkl.xz'
+print(OUTPUT_FILE)
 
 def load_data(source_dir, scale = None, arena_dim = None):
     data = None
@@ -91,6 +95,23 @@ def load_data(source_dir, scale = None, arena_dim = None):
     else:
         logger.info(msg=f"No processed file found. Looking for ")
         return load_combined_files(source_dir, arena_dim, scale)
+
+
+def load_pheromone_time_series_hdf5(
+    file_path: str
+) -> np.ndarray:
+    """
+    Load pheromone time series from an HDF5 file.
+    
+    Parameters:
+    - file_path (str): Path to the HDF5 file.
+    
+    Returns:
+    - pheromone_time_series (np.ndarray): Loaded pheromone data.
+    """
+    with h5py.File(file_path, 'r') as h5f:
+        pheromone_time_series = h5f['pheromone_time_series'][:]
+    return pheromone_time_series
 
 
 def translate_data_to_sim_space(data, arena_dim):
@@ -146,11 +167,8 @@ def add_theta_and_smoothed_theta(df, window_size=20, smoothed_suffix='smoothed_t
         dx = x.shift(-1) - x
         dy = y.shift(-1) - y
 
-        # Invert dy for Pygame's coordinate system (y increases downward)
-        dy_inverted = -dy
-
         # Calculate theta using arctan2
-        theta = np.arctan2(dy_inverted, dx)
+        theta = np.arctan2(dy, dx)
 
         # Normalize theta to be within [0, 2*pi)
         theta_normalized = theta % (2 * math.pi)
@@ -171,11 +189,11 @@ def add_theta_and_smoothed_theta(df, window_size=20, smoothed_suffix='smoothed_t
         theta_series = df[individual, 'theta']
 
         # Handle missing values: forward-fill then backward-fill
-        theta_filled = theta_series.fillna(method='ffill').fillna(method='bfill')
+        # theta_filled = theta_series.fillna(method='ffill').fillna(method='bfill')
 
         # Convert theta to sine and cosine components
-        sin_theta = np.sin(theta_filled)
-        cos_theta = np.cos(theta_filled)
+        sin_theta = np.sin(theta_series)
+        cos_theta = np.cos(theta_series)
 
         # Compute rolling (sliding window) average of sine and cosine
         sin_avg = sin_theta.rolling(window=window_size, min_periods=1).mean()
@@ -194,6 +212,9 @@ def add_theta_and_smoothed_theta(df, window_size=20, smoothed_suffix='smoothed_t
         except ValueError:
             print(f"Column {theta_col} not found for individual {individual}. Skipping smoothed_theta insertion.")
             continue
+        
+        # Set smoothed_theta to NaN where original theta is NaN
+        df[smoothed_theta_col] = df[smoothed_theta_col].where(~theta_series.isna(), np.nan)
 
     return df
 
@@ -572,6 +593,7 @@ class AntDynamicsEnv(gym.Env):
     }
 
     ant_trail_data = None
+    pheromone_data = None
 
     def __init__(self, render_mode=None):
         self.np_random, seed = self.seed(seed=69)
@@ -619,6 +641,10 @@ class AntDynamicsEnv(gym.Env):
         if not type(self).ant_trail_data:
             self._get_ant_trails()
 
+        # Load pheromone time series (consider using memmap if large)
+        if not type(self).pheromone_data:
+            type(self).pheromone_data = load_pheromone_time_series_hdf5(os.path.join(DATA_DIRECTORY, "pheromone_time_series_discrete.h5"))
+
 
     def seed(self, seed=None):
         return seeding.np_random(seed)
@@ -639,15 +665,15 @@ class AntDynamicsEnv(gym.Env):
         also provide positions of other ants within a given radius for feeding
         into the ant's internal state.
         """
-        trail_length = int(trail_len)+2
-        target = np.zeros((trail_length, 4), dtype=float)
         trail_data = type(self).ant_trail_data
+        trail_length = int(trail_len)+2
+        target = np.zeros((trail_length, len(trail_data.columns.levels[1])), dtype=float)
         num_ants = len(trail_data.columns.levels[0])
         # If showing positions of other ants during the trail
         other_ants = None
         if others:
             other_ants = np.zeros(
-                (num_ants - 1, trail_length, 4),
+                (num_ants - 1, trail_length, len(trail_data.columns.levels[1])),
                 dtype=float
             )
 
@@ -686,7 +712,7 @@ class AntDynamicsEnv(gym.Env):
         # other_ants' (x, y) and theta, smoothed_theta
 
         return  Ant(target[0,0:2], target[0,3]),\
-            target[:,0:2], target[:,2:4],\
+            target[:,0:2], target[:,2:4], target[:,4:6] if "smoothed" in FILE_SUFFIX else None,\
             other_ants[:,:,0:2], other_ants[:,:,2:4]
 
 
@@ -716,6 +742,114 @@ class AntDynamicsEnv(gym.Env):
     def _get_angle_from_trajectory(self, trail, start_time):
         _, angle, _, _ = self._get_interval_data(trail, start_time)
         return angle
+
+
+    def identify_overlapping_grid_cells(
+        self,
+        pos: tuple,
+        bounding_box: int,
+        grid_size: tuple = (SCREEN_W, SCREEN_H),
+        coarse_grid_size: tuple = (20, 20)
+    ) -> list:
+        """
+        Identify which cells in the discretized grid an ant overlaps with based on its position and bounding box.
+        
+        Parameters:
+        - x (float): X-coordinate of the ant in simulation space (0 <= x < grid_width).
+        - y (float): Y-coordinate of the ant in simulation space (0 <= y < grid_height).
+        - bounding_box (int): Size of the ant's bounding box in pixels (assumed square).
+        - grid_size (tuple): Size of the simulation grid in pixels (height, width). Default is (900, 900).
+        - coarse_grid_size (tuple): Size of the discretized grid (height, width). Default is (20, 20).
+        
+        Returns:
+        - List[Tuple[int, int]]: List of (row, column) indices of grid cells overlapped by the ant.
+        """
+        x, y = pos
+        
+        fine_height, fine_width = grid_size
+        coarse_height, coarse_width = coarse_grid_size
+        
+        # Calculate discretization factors
+        factor_y = fine_height / coarse_height
+        factor_x = fine_width / coarse_width
+        
+        # Calculate bounding box boundaries in simulation space
+        half_box = bounding_box / 2
+        x_min = max(x - half_box, 0)
+        x_max = min(x + half_box, fine_width - 1)
+        y_min = max(y - half_box, 0)
+        y_max = min(y + half_box, fine_height - 1)
+        
+        # Map simulation space boundaries to coarse grid indices
+        row_min = int(math.floor(y_min / factor_y))
+        row_max = int(math.floor(y_max / factor_y))
+        col_min = int(math.floor(x_min / factor_x))
+        col_max = int(math.floor(x_max / factor_x))
+        
+        # Ensure indices are within coarse grid bounds
+        row_min = max(row_min, 0)
+        row_max = min(row_max, coarse_height - 1)
+        col_min = max(col_min, 0)
+        col_max = min(col_max, coarse_width - 1)
+        
+        # Generate list of overlapping grid cells
+        overlapping_cells = []
+        for row in range(row_min, row_max + 1):
+            for col in range(col_min, col_max + 1):
+                overlapping_cells.append((row, col))
+        
+        return overlapping_cells
+
+
+    def get_ant_overlapping_cells_and_average_pheromone_vectorized(
+        self,
+        pos: tuple,
+        bounding_box: int,
+        pheromone_time_series: np.ndarray,
+        snapshot_index: int,
+        grid_size: tuple = (900, 900),
+        coarse_grid_size: tuple = (20, 20)
+    ) -> tuple:
+        """
+        Vectorized version to identify overlapping grid cells and compute average pheromone intensity.
+        
+        Parameters:
+        - Same as previous function.
+        
+        Returns:
+        - overlapping_cells (list of tuples)
+        - average_pheromone (float)
+        """
+        x, y = pos
+        
+        # Validate snapshot index
+        if snapshot_index < 0 or snapshot_index >= pheromone_time_series.shape[0]:
+            raise IndexError(f"Snapshot index {snapshot_index} is out of bounds for pheromone_time_series with {pheromone_time_series.shape[0]} snapshots.")
+        
+        # Identify overlapping grid cells
+        overlapping_cells = self.identify_overlapping_grid_cells(
+            x=x,
+            y=y,
+            bounding_box=bounding_box,
+            grid_size=grid_size,
+            coarse_grid_size=coarse_grid_size
+        )
+        
+        if not overlapping_cells:
+            # No overlapping cells, possibly ant is outside the grid
+            average_pheromone = 0.0
+            return overlapping_cells, average_pheromone
+        
+        # Convert list of tuples to separate row and column arrays
+        rows, cols = zip(*overlapping_cells)  # Unzips the list of tuples
+        
+        # Retrieve pheromone intensities using NumPy's advanced indexing
+        pheromone_values = pheromone_time_series[snapshot_index, rows, cols]
+        
+        # Compute average pheromone intensity
+        average_pheromone = np.mean(pheromone_values) if pheromone_values.size > 0 else 0.0
+        
+        return overlapping_cells, average_pheromone
 
 
     def _angle_difference(self, angle1, angle2):
@@ -868,6 +1002,7 @@ class AntDynamicsEnv(gym.Env):
         self.ant_trail = []
         self.target_trail = []
         self.target_angles = []
+        self.target_distances = []
         self.other_ants = []
         self.other_ants_angles = []
 
@@ -887,7 +1022,7 @@ class AntDynamicsEnv(gym.Env):
         self.actions = []
 
         self.ant,\
-            self.target_trail, self.target_angles,\
+            self.target_trail, self.target_angles, self.target_distances, \
                 self.other_ants, self.other_ants_angles = \
                     self._select_target(
                         others=True,
@@ -922,7 +1057,7 @@ class AntDynamicsEnv(gym.Env):
         time = 0
         while self.t + time < len(self.target_trail) - 1 and time < dt:
             # Calculate current and next position
-            current_pos = self.target_trail[self.t + int(time)]
+            current_pos = self.ant.pos
             next_pos = self.target_trail[self.t + int(time) + 1]
 
             # Calculate distance and angle to the next position
@@ -964,12 +1099,12 @@ class AntDynamicsEnv(gym.Env):
 
         # Implement target_data actions using auto_action controls
         auto_action = [0, 0, 0, 0]  # [FORWARD, BACKWARD, TURN_LEFT, TURN_RIGHT]
-        # target_action = self.target_data['action'][int(self.t * 2)]  # Adjust indexing for smaller time increment
 
         # Update the ant position and orientation with the calculated distance and rotation
         auto_action, movement_info = self._get_action(1)
-        print(self.target_angles[self.t])
-        self.ant.set_action(auto_action, movement_info['distance'], movement_info['target_angle'])
+        print(movement_info['target_angle'], self.target_angles[self.t])
+        # self.ant.set_action(auto_action, movement_info['distance'], movement_info['target_angle'])
+        self.ant.set_action(auto_action, movement_info['distance'], self.target_angles[self.t][1])
         self.ant.update(self.ant_arena)
 
         # Get observations of other ants in the arena
