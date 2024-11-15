@@ -12,6 +12,8 @@ import os
 import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.utils import colorize, seeding
+from scipy.ndimage import gaussian_filter  # Required for pheromone data processing
+from tqdm import tqdm  # For progress bar during pheromone data generation
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -22,7 +24,7 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 if __name__ == "__main__":
-    # Relative path durving development
+    # Relative path during development
     DATA_DIRECTORY = "../data/2023_2/"
 else:
     # Relative path when training
@@ -48,6 +50,7 @@ TURN_RATE = 10 * math.pi / 360  # Reduced turn rate for smoother movement
 VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
 DRAW_ANT_VISION = True
+DRAW_PHEROMONES = False
 
 vision_segments = [
     # Front arc: Directly in front of the agent
@@ -79,8 +82,8 @@ FADE_DURATION = 5 # seconds
 ##########################################
 
 FILE_PREFIX = "KA050_10cm_5h_20230614"
-FILE_SUFFIX = "angles"
-# FILE_SUFFIX = "smoothed"
+# FILE_SUFFIX = "angles"
+FILE_SUFFIX = "smoothed"
 PP_FILE_PREFIX = "KA050_processed"
 OUTPUT_FILE = '_'.join([PP_FILE_PREFIX, *FILE_PREFIX.split('_')[1:], FILE_SUFFIX]) + '.pkl.xz'
 print(OUTPUT_FILE)
@@ -98,19 +101,26 @@ def load_data(source_dir, scale = None, arena_dim = None):
 
 
 def load_pheromone_time_series_hdf5(
-    file_path: str
+    file_path: str,
+    scale: int = None
 ) -> np.ndarray:
     """
-    Load pheromone time series from an HDF5 file.
+    Load pheromone time series from an HDF5 file and optionally downsample it by the given scale.
     
     Parameters:
     - file_path (str): Path to the HDF5 file.
+    - scale (int): The scale factor to downsample the data (e.g., skip every n frames).
     
     Returns:
-    - pheromone_time_series (np.ndarray): Loaded pheromone data.
+    - pheromone_time_series (np.ndarray): Loaded and downsampled pheromone data.
     """
     with h5py.File(file_path, 'r') as h5f:
         pheromone_time_series = h5f['pheromone_time_series'][:]
+    
+    # Downsample the data if a scale is provided
+    if scale:
+        pheromone_time_series = pheromone_time_series[::int(scale)]
+    
     return pheromone_time_series
 
 
@@ -383,6 +393,7 @@ class Ant():
         self.V_b_l = None
         self.vision_range = VISION_RANGE
 
+        self.pheromone = 0.0
 
     def _detect_vision(self, detected_ants: dict, total_colony_size: int, max_value: float = 1.0):
         """
@@ -492,6 +503,10 @@ class Ant():
         return detected_ants
 
 
+    def set_pheromone(self, pheromone):
+        self.pheromone = pheromone
+
+
     def _turn(self):
         self.theta += self.theta_dot
         self.theta = self.theta % (2 * math.pi)
@@ -530,26 +545,8 @@ class Ant():
             self.desired_speed = distance
         if (backward and (not forward)):
             # self.desired_speed = -AGENT_SPEED # * TIMESTEP
-            self.desired_speed = distance
+            self.desired_speed = -distance
 
-        # Turn left
-        # if turn_left and not turn_right:
-        #     self.turning_time_left += TIMESTEP  # Increase time turning left
-        #     self.turning_time_right = 0.0       # Reset right turn time
-        #     # Scale the turn rate based on how long we've been turning
-        #     scale_factor = min(self.turning_time_left / self.max_turn_duration, 1.0)
-        #     # self.desired_turn_speed = -TURN_RATE# * scale_factor
-        #     self.desired_turn_speed = -rotation
-
-        # # Turn right
-        # if turn_right and not turn_left:
-        #     self.turning_time_right += TIMESTEP  # Increase time turning right
-        #     self.turning_time_left = 0.0         # Reset left turn time
-        #     # Scale the turn rate based on how long we've been turning
-        #     scale_factor = min(self.turning_time_right / self.max_turn_duration, 1.0)
-        #     # self.desired_turn_speed = TURN_RATE# * scale_factor
-        #     self.desired_turn_speed = rotation
-        # print(rotation)
         self.theta = rotation
 
         # If no turn, reset the turn timers
@@ -559,7 +556,7 @@ class Ant():
 
         return [int(x) for x in [forward, backward, turn_left, turn_right]]
 
-    def get_obs(self, others=None):
+    def get_obs(self, others = None):
         if others is not None:
             self._detect_vision(self._detect_nearby_ants(others), len(others))
         result = [
@@ -567,6 +564,7 @@ class Ant():
             self.theta, self.theta_dot,
             self.V_f_l1, self.V_f_l2, self.V_f, self.V_f_r2, self.V_f_r1,
             self.V_b_r, self.V_b, self.V_b_l,
+            self.pheromone
         ]
         return result
 
@@ -599,7 +597,7 @@ class AntDynamicsEnv(gym.Env):
         self.np_random, seed = self.seed(seed=69)
 
         self.ant = None
-        self.ant_trail = None
+        self.ant_trail = []
 
         self.target_trail = None
         self.target_data = None
@@ -611,6 +609,10 @@ class AntDynamicsEnv(gym.Env):
 
         self.t = 0
         self.t_limit = TIME_LIMIT
+
+        self.time_offset = None
+        self.snapshot_interval_sec = 1.0  # As per your pheromone data generation
+        self.frames_per_snapshot = int(self.snapshot_interval_sec * SIM_FPS)
 
         self.actions = []
 
@@ -643,11 +645,18 @@ class AntDynamicsEnv(gym.Env):
 
         # Load pheromone time series (consider using memmap if large)
         if not type(self).pheromone_data:
-            type(self).pheromone_data = load_pheromone_time_series_hdf5(os.path.join(DATA_DIRECTORY, "pheromone_time_series_discrete.h5"))
+            type(self).pheromone_data = load_pheromone_time_series_hdf5(
+                os.path.join(DATA_DIRECTORY, "pheromone_time_series_discrete.h5")
+            )
 
 
     def seed(self, seed=None):
         return seeding.np_random(seed)
+
+
+    @property
+    def _snapshot_index(self):
+        return ((self.t + self.time_offset) // self.frames_per_snapshot)
 
 
     def _get_ant_trails(self):
@@ -711,7 +720,8 @@ class AntDynamicsEnv(gym.Env):
         # target trail's (x, y) and theta, smoothed_theta
         # other_ants' (x, y) and theta, smoothed_theta
 
-        return  Ant(target[0,0:2], target[0,3]),\
+        return  start,\
+            Ant(target[0,0:2], target[0,3]),\
             target[:,0:2], target[:,2:4], target[:,4:6] if "smoothed" in FILE_SUFFIX else None,\
             other_ants[:,:,0:2], other_ants[:,:,2:4]
 
@@ -744,7 +754,7 @@ class AntDynamicsEnv(gym.Env):
         return angle
 
 
-    def identify_overlapping_grid_cells(
+    def _identify_overlapping_grid_cells(
         self,
         pos: tuple,
         bounding_box: int,
@@ -801,12 +811,11 @@ class AntDynamicsEnv(gym.Env):
         return overlapping_cells
 
 
-    def get_ant_overlapping_cells_and_average_pheromone_vectorized(
+    def _get_average_pheromone_vectorized(
         self,
         pos: tuple,
-        bounding_box: int,
-        pheromone_time_series: np.ndarray,
         snapshot_index: int,
+        bounding_box: int = 5,
         grid_size: tuple = (900, 900),
         coarse_grid_size: tuple = (20, 20)
     ) -> tuple:
@@ -820,16 +829,14 @@ class AntDynamicsEnv(gym.Env):
         - overlapping_cells (list of tuples)
         - average_pheromone (float)
         """
-        x, y = pos
         
         # Validate snapshot index
-        if snapshot_index < 0 or snapshot_index >= pheromone_time_series.shape[0]:
-            raise IndexError(f"Snapshot index {snapshot_index} is out of bounds for pheromone_time_series with {pheromone_time_series.shape[0]} snapshots.")
+        if snapshot_index < 0 or snapshot_index >= self.pheromone_data.shape[0]:
+            raise IndexError(f"Snapshot index {snapshot_index} is out of bounds for pheromone_time_series with {self.pheromone_data.shape[0]} snapshots.")
         
         # Identify overlapping grid cells
-        overlapping_cells = self.identify_overlapping_grid_cells(
-            x=x,
-            y=y,
+        overlapping_cells = self._identify_overlapping_grid_cells(
+            pos=pos,
             bounding_box=bounding_box,
             grid_size=grid_size,
             coarse_grid_size=coarse_grid_size
@@ -844,7 +851,7 @@ class AntDynamicsEnv(gym.Env):
         rows, cols = zip(*overlapping_cells)  # Unzips the list of tuples
         
         # Retrieve pheromone intensities using NumPy's advanced indexing
-        pheromone_values = pheromone_time_series[snapshot_index, rows, cols]
+        pheromone_values = self.pheromone_data[snapshot_index, rows, cols]
         
         # Compute average pheromone intensity
         average_pheromone = np.mean(pheromone_values) if pheromone_values.size > 0 else 0.0
@@ -973,7 +980,7 @@ class AntDynamicsEnv(gym.Env):
         return reward
 
 
-    def _reward_function(self, actions=None):
+    def _reward_function(self, actions = None):
         """
         Calculate the reward given the focal ant and the accuracy of its behaviour
         over the trial, given the source data as the ground truth.
@@ -989,7 +996,7 @@ class AntDynamicsEnv(gym.Env):
         elif REWARD_TYPE.lower() == 'action':
             return self._calculate_action_reward(actions, self.target_trail, self.t)
 
-    def get_observations(self, others=None):
+    def get_observations(self, others = None):
         return np.sum(self.ant.get_obs(others))
 
 
@@ -1021,7 +1028,8 @@ class AntDynamicsEnv(gym.Env):
 
         self.actions = []
 
-        self.ant,\
+        self.time_offset,\
+            self.ant,\
             self.target_trail, self.target_angles, self.target_distances, \
                 self.other_ants, self.other_ants_angles = \
                     self._select_target(
@@ -1030,6 +1038,14 @@ class AntDynamicsEnv(gym.Env):
                     )
         self.target_data = self._calculate_target_data(self.target_trail)
         # self.ant.theta = self._get_angle_from_trajectory(self.target_trail, self.t)
+
+        _, pheromone = self._get_average_pheromone_vectorized(
+            self.ant.pos,
+            self._snapshot_index,
+            coarse_grid_size=(50,50)
+        )
+        self.ant.set_pheromone(pheromone)
+        
         obs = self.get_observations(self.other_ants[:,self.t])
 
         if self.render_mode == 'human':
@@ -1102,9 +1118,9 @@ class AntDynamicsEnv(gym.Env):
 
         # Update the ant position and orientation with the calculated distance and rotation
         auto_action, movement_info = self._get_action(1)
-        print(movement_info['target_angle'], self.target_angles[self.t])
+        # print(movement_info['target_angle'], self.target_angles[self.t])
         # self.ant.set_action(auto_action, movement_info['distance'], movement_info['target_angle'])
-        self.ant.set_action(auto_action, movement_info['distance'], self.target_angles[self.t][1])
+        self.ant.set_action(auto_action, self.target_distances[self.t][0], self.target_angles[self.t][1])
         self.ant.update(self.ant_arena)
 
         # Get observations of other ants in the arena
@@ -1148,23 +1164,64 @@ class AntDynamicsEnv(gym.Env):
             self.clock = pygame.time.Clock()
             return
 
-        canvas = pygame.Surface((SCREEN_W, SCREEN_H))
-        canvas.fill((200, 190, 210))
+        # Fill the canvas with purple as the outer background
+        canvas = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+        canvas.fill((200, 190, 210))  # Outer purple background
 
-        # Project the circular arena
+        # Draw the circular arena on the canvas
         pygame.draw.circle(
             canvas,
             (230, 230, 230),
-            self.ant_arena[0],
-            self.ant_arena[1]
+            (int(self.ant_arena[0][0]), int(self.ant_arena[0][1])),  # Center of the arena
+            int(self.ant_arena[1])  # Radius
         )
+
+        if DRAW_PHEROMONES:
+            # ---- Begin Pheromone Visualization ----
+            # Calculate the adjusted snapshot index based on time_offset
+            adjusted_time = self.t + self.time_offset
+            snapshot_index = (adjusted_time // self.frames_per_snapshot)
+
+            # Ensure the snapshot index is within bounds
+            max_snapshot_index = type(self).pheromone_data.shape[0] - 1
+            snapshot_index = min(snapshot_index, max_snapshot_index)
+
+            pheromone_map = type(self).pheromone_data[snapshot_index]
+
+            # Normalize and convert to 8-bit grayscale
+            pheromone_map_scaled = (pheromone_map * 255).astype(np.uint8)
+
+            # Convert to RGB by stacking the grayscale values
+            pheromone_map_rgb = np.stack([pheromone_map_scaled]*3, axis=-1)
+            pheromone_map_rgb_T = np.transpose(pheromone_map_rgb, (1, 0, 2))  # (50, 50, 3)
+
+            # Create a new surface for pheromone data
+            pheromone_surface = pygame.surfarray.make_surface(pheromone_map_rgb_T)
+            pheromone_surface = pygame.transform.scale(pheromone_surface, (SCREEN_W, SCREEN_H))
+
+            # Mask out the outside area by setting alpha to zero outside the circle
+            mask_surface = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+            mask_surface.fill((0, 0, 0, 0))  # Fully transparent
+
+            pygame.draw.circle(
+                mask_surface,
+                (255, 255, 255, 255),  # Fully opaque within the arena
+                (int(self.ant_arena[0][0]), int(self.ant_arena[0][1])),
+                int(self.ant_arena[1])
+            )
+
+            # Apply the mask to the pheromone surface
+            pheromone_surface.blit(mask_surface, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+
+            # Blit the masked pheromone surface onto the canvas
+            canvas.blit(pheromone_surface, (0, 0))
+            # ---- End Pheromone Visualization ----
 
         if DRAW_ANT_VISION:
             pygame.draw.circle(
                 canvas,
-                (225, 225, 230),
-                (self.ant.pos.x,
-                self.ant.pos.y),
+                (225, 225, 230, 255),
+                (int(self.ant.pos.x), int(self.ant.pos.y)),
                 VISION_RANGE
             )
             for (start_angle, stop_angle), colour in vision_segments:
@@ -1172,45 +1229,56 @@ class AntDynamicsEnv(gym.Env):
                 start_angle = (self.ant.theta + start_angle) % (2 * math.pi)
                 stop_angle = (self.ant.theta + stop_angle) % (2 * math.pi)
                 
-                pygame.draw.line(canvas, colour,
-                    (self.ant.pos.x, self.ant.pos.y),
-                    np.add(
-                        np.array(self.ant.pos),
-                        np.array([np.cos(start_angle), np.sin(start_angle)]) * VISION_RANGE
+                pygame.draw.line(
+                    canvas,
+                    colour,
+                    (int(self.ant.pos.x), int(self.ant.pos.y)),
+                    (
+                        int(self.ant.pos.x + np.cos(start_angle) * VISION_RANGE),
+                        int(self.ant.pos.y + np.sin(start_angle) * VISION_RANGE)
                     )
                 )
-            # pygame.draw.arc(
-            #     canvas,
-            #     colour,
-            #     (self.ant.pos.x - VISION_RANGE,
-            #     self.ant.pos.y - VISION_RANGE,
-            #     VISION_RANGE*2, VISION_RANGE*2),
-            #     arc_definitions[2][0][1], arc_definitions[2][0][0], 1
-            # )
-
 
         ### DRAW TRAILS FIRST
 
         # Draw projected target trail
         if REWARD_TYPE.lower() == 'trail':
             for pos in self.target_trail:
-                pygame.draw.rect(canvas, (220, 180, 180),
-                                (pos[0] - ANT_DIM.x/2.,
-                                pos[1] - ANT_DIM.y/2.,
-                                ANT_DIM.x, ANT_DIM.y))
+                pygame.draw.rect(
+                    canvas,
+                    (220, 180, 180),
+                    (
+                        pos[0] - ANT_DIM.x/2.,
+                        pos[1] - ANT_DIM.y/2.,
+                        ANT_DIM.x,
+                        ANT_DIM.y
+                    )
+                )
         else:
             try:
                 for pos in self.target_trail[:self.t+1]:
-                    pygame.draw.rect(canvas, (220, 180, 180),
-                                    (pos[0] - ANT_DIM.x/2.,
-                                    pos[1] - ANT_DIM.y/2.,
-                                    ANT_DIM.x, ANT_DIM.y))
+                    pygame.draw.rect(
+                        canvas,
+                        (220, 180, 180),
+                        (
+                            pos[0] - ANT_DIM.x/2.,
+                            pos[1] - ANT_DIM.y/2.,
+                            ANT_DIM.x,
+                            ANT_DIM.y
+                        )
+                    )
             except IndexError:
                 for pos in self.target_trail:
-                    pygame.draw.rect(canvas, (220, 180, 180),
-                                    (pos[0] - ANT_DIM.x/2.,
-                                    pos[1] - ANT_DIM.y/2.,
-                                    ANT_DIM.x, ANT_DIM.y))
+                    pygame.draw.rect(
+                        canvas,
+                        (220, 180, 180),
+                        (
+                            pos[0] - ANT_DIM.x/2.,
+                            pos[1] - ANT_DIM.y/2.,
+                            ANT_DIM.x,
+                            ANT_DIM.y
+                        )
+                    )
 
         # Draw ant trail
         trail_length = len(self.ant_trail)
@@ -1222,10 +1290,16 @@ class AntDynamicsEnv(gym.Env):
         else:
             self.ant_trail_segment = []
         for pos in self.ant_trail_segment:
-            pygame.draw.rect(canvas, (180, 180, 220),
-                        (pos.x - ANT_DIM.x/2.,
-                        pos.y - ANT_DIM.y/2.,
-                        ANT_DIM.x, ANT_DIM.y))
+            pygame.draw.rect(
+                canvas,
+                (180, 180, 220),
+                (
+                    pos.x - ANT_DIM.x/2.,
+                    pos.y - ANT_DIM.y/2.,
+                    ANT_DIM.x,
+                    ANT_DIM.y
+                )
+            )
 
         ### THEN DRAW ANTS AT THEIR CURRENT POSITIONS
 
@@ -1233,10 +1307,16 @@ class AntDynamicsEnv(gym.Env):
         if self.other_ants is not None:
             try:
                 for other_ant in self.other_ants[:,self.t]:
-                    pygame.draw.rect(canvas, (180, 180, 180),
-                                    (other_ant[0] - ANT_DIM.x/2.,
-                                    other_ant[1] - ANT_DIM.y/2.,
-                                    ANT_DIM.x, ANT_DIM.y))
+                    pygame.draw.rect(
+                        canvas,
+                        (180, 180, 180),
+                        (
+                            other_ant[0] - ANT_DIM.x/2.,
+                            other_ant[1] - ANT_DIM.y/2.,
+                            ANT_DIM.x,
+                            ANT_DIM.y
+                        )
+                    )
 
             except IndexError:
                 print(other_ant)
@@ -1246,24 +1326,37 @@ class AntDynamicsEnv(gym.Env):
                 logger.error("Cannot draw ant with provided coordinates.")
 
         # Draw target ant
-        pygame.draw.rect(canvas, (180, 0, 0),
-                        (self.target_trail[-1][0] - ANT_DIM.x/2.,
-                         self.target_trail[-1][1] - ANT_DIM.y/2.,
-                         ANT_DIM.x, ANT_DIM.y))
-
-        # Draw agent last; to ensure visibility.
-        pygame.draw.rect(canvas, (0, 0, 180),
-                        (self.ant.pos.x - ANT_DIM.x/2.,
-                         self.ant.pos.y - ANT_DIM.y/2.,
-                         ANT_DIM.x, ANT_DIM.y))
-        pygame.draw.line(canvas, (0, 0, 180),
-            (self.ant.pos.x, self.ant.pos.y),
-            np.add(
-                np.array(self.ant.pos),
-                np.array([np.cos(self.ant.theta), np.sin(self.ant.theta)]) * ANT_DIM.x * 3
+        pygame.draw.rect(
+            canvas,
+            (180, 0, 0),
+            (
+                self.target_trail[-1][0] - ANT_DIM.x/2.,
+                self.target_trail[-1][1] - ANT_DIM.y/2.,
+                ANT_DIM.x,
+                ANT_DIM.y
             )
         )
 
+        # Draw agent last; to ensure visibility.
+        pygame.draw.rect(
+            canvas,
+            (0, 0, 180),
+            (
+                self.ant.pos.x - ANT_DIM.x/2.,
+                self.ant.pos.y - ANT_DIM.y/2.,
+                ANT_DIM.x,
+                ANT_DIM.y
+            )
+        )
+        pygame.draw.line(
+            canvas,
+            (0, 0, 180),
+            (int(self.ant.pos.x), int(self.ant.pos.y)),
+            (
+                int(self.ant.pos.x + np.cos(self.ant.theta) * ANT_DIM.x * 3),
+                int(self.ant.pos.y + np.sin(self.ant.theta) * ANT_DIM.x * 3)
+            )
+        )
 
         if self.render_mode == 'human':
             self.window.blit(canvas, canvas.get_rect())
@@ -1314,7 +1407,6 @@ if __name__ == "__main__":
         total_reward += reward
 
         if done: break
-
 
     env.close()
     print('Cumulative score:', total_reward)
