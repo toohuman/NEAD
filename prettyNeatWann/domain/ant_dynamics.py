@@ -1120,7 +1120,7 @@ class AntDynamicsEnv(gym.Env):
         auto_action, movement_info = self._get_action(1)
         # print(movement_info['target_angle'], self.target_angles[self.t])
         # self.ant.set_action(auto_action, movement_info['distance'], movement_info['target_angle'])
-        self.ant.set_action(auto_action, self.target_distances[self.t][0], self.target_angles[self.t][1])
+        self.ant.set_action(auto_action, movement_info['distance'], self.target_angles[self.t][1])
         self.ant.update(self.ant_arena)
 
         # Get observations of other ants in the arena
