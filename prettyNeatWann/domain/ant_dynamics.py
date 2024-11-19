@@ -392,6 +392,7 @@ class Ant():
         self.V_b = None
         self.V_b_l = None
         self.vision_range = VISION_RANGE
+        self.dist_to_wall = None
 
         self.pheromone = 0.0
 
@@ -600,7 +601,11 @@ class AntDynamicsEnv(gym.Env):
         self.ant_trail = []
 
         self.target_trail = None
-        self.target_data = None
+        self.target_data = {
+            'angle': [],
+            'distance': [],
+            'action': []
+        }
 
         self.other_ants = None
         self.viewer = None
@@ -953,7 +958,7 @@ class AntDynamicsEnv(gym.Env):
         the agent's actions and the historical actions of the target ant.
         """
         # Extract the actual action from the target data
-        target_action = self.target_data['action'][time]
+        target_action = "FORWARD"
 
         # Extract agent's chosen actions from the outputs
         forward, backward, turn_left, turn_right = actions
@@ -1008,6 +1013,7 @@ class AntDynamicsEnv(gym.Env):
         self.ant = None
         self.ant_trail = []
         self.target_trail = []
+        self.target_data = None
         self.target_angles = []
         self.target_distances = []
         self.other_ants = []
@@ -1036,7 +1042,8 @@ class AntDynamicsEnv(gym.Env):
                         others=True,
                         trail_len=TIME_LIMIT
                     )
-        self.target_data = self._calculate_target_data(self.target_trail)
+        
+        # self.target_data = self._calculate_target_data(self.target_trail)
         # self.ant.theta = self._get_angle_from_trajectory(self.target_trail, self.t)
 
         _, pheromone = self._get_average_pheromone_vectorized(
@@ -1099,7 +1106,47 @@ class AntDynamicsEnv(gym.Env):
             time += 1
         
         return action, info
+    
 
+    def _get_stepped_action(self, dt):
+        action = [0, 0, 0, 0]
+
+        if self.target_data is None or len(self.target_data['angle']) == 0: 
+            self.target_data = {
+                'angle': [],
+                'distance': [],
+                'action': []
+            }
+            if self.t + dt < len(self.target_trail) - 1:
+                # Calculate current and next position
+                current_pos = self.ant.pos
+                next_pos = self.target_trail[self.t + int(dt)]
+
+                # Calculate distance and angle to the next position
+                dx = next_pos[0] - current_pos[0]
+                dy = next_pos[1] - current_pos[1]
+                distance = math.sqrt(dx**2 + dy**2)
+                self.target_data['distance'] = [distance/dt for _ in range(dt)]
+                angle_to_target = math.atan2(dy, dx)
+                self.target_data['angle'] = [angle_to_target for _ in range(dt)]
+
+                # Determine angle difference from current orientation
+                angle_diff = self._angle_difference(self.ant.theta, angle_to_target)
+
+                if distance > 0.05:
+                    action[0] = 1
+
+                if angle_diff < 0:
+                    action[2] = 1
+                elif angle_diff > 0:
+                    action[3] = 1
+        
+        target_data = {
+            'angle': self.target_data['angle'].pop(),
+            'distance': self.target_data['distance'].pop()
+        }
+
+        return action, target_data
 
     def step(self, action):
         """
@@ -1117,10 +1164,10 @@ class AntDynamicsEnv(gym.Env):
         auto_action = [0, 0, 0, 0]  # [FORWARD, BACKWARD, TURN_LEFT, TURN_RIGHT]
 
         # Update the ant position and orientation with the calculated distance and rotation
-        auto_action, movement_info = self._get_action(1)
-        # print(movement_info['target_angle'], self.target_angles[self.t])
-        # self.ant.set_action(auto_action, movement_info['distance'], movement_info['target_angle'])
-        self.ant.set_action(auto_action, movement_info['distance'], self.target_angles[self.t][1])
+        auto_action, movement_info = self._get_stepped_action(3)
+        # print(movement_info['distance'], movement_info['angle'])
+        self.ant.set_action(auto_action, movement_info['distance'], movement_info['angle'])
+        # self.ant.set_action(auto_action, movement_info['distance'], self.target_angles[self.t][1])
         self.ant.update(self.ant_arena)
 
         # Get observations of other ants in the arena
