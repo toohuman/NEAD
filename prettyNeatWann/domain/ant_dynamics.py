@@ -42,7 +42,7 @@ vec2d = namedtuple('vec2d', ['x', 'y'])
 # Global parameters for agent control
 TIMESTEP = 1./SIM_FPS       # Not sure if this will be necessary, given the fixed FPS?
 # TIME_LIMIT = SIM_FPS * 60   # 60 seconds
-TIME_LIMIT = SIM_FPS * 60   # 60 seconds
+TIME_LIMIT = SIM_FPS * 30   # 60 seconds
 
 ANT_DIM = vec2d(5, 5)
 AGENT_SPEED = 10 * 3.25  # Reduced speed for better alignment with target
@@ -72,7 +72,7 @@ vision_segments = [
     ((-5 * math.pi / 6, -math.pi / 2), (255, 192, 203)),
 ]
 
-REWARD_TYPE = 'action' # 'trail', 'action'
+REWARD_TYPE = 'action' # 'action', 'coverage', 'aggregation'
 TRACK_TRAIL = 'all' # 'all', 'fade', 'none'
 MOVEMENT_THRESHOLD = 10
 FADE_DURATION = 5 # seconds
@@ -275,13 +275,13 @@ def calculate_circle(min_x, min_y, max_x, max_y):
     tuple: A tuple containing the center coordinates (x, y) and the radius of the circle.
     """
     # Calculate the center of the bounding box
-    x_centre = (min_x + max_x) / 2
-    y_centre = (min_y + max_y) / 2
+    x_center = (min_x + max_x) / 2
+    y_center = (min_y + max_y) / 2
 
     # Calculate the radius of the circle
     radius = min(max_x - min_x, max_y - min_y) / 2
 
-    return ((x_centre, y_centre), radius)
+    return ((x_center, y_center), radius)
 
 
 def circle_transformation(circle_a, circle_b):
@@ -329,6 +329,7 @@ def euclidean_distances(data):
 
     return distances
 
+
 def is_rectangle_in_circle(x, y, circle_center, circle_radius):
     """
     Check if a pygame.Rect is completely contained within a circle.
@@ -361,6 +362,37 @@ def is_rectangle_in_circle(x, y, circle_center, circle_radius):
     return True
 
 
+def to_polar_coordinates(pos, arena_center, arena_radius, norm=True):
+    """
+    Converts an (x, y) position into normalized polar coordinates (r, θ).
+
+    Parameters:
+    - pos: tuple, (x, y) position of the agent.
+    - arena_center: tuple, (x, y) center of the arena.
+    - arena_radius: float, radius of the circular arena.
+
+    Returns:
+    - r_normalized: float, radial distance normalized to [0, 1].
+    - theta_normalized: float, angle in radians normalized to [-1, 1].
+    """
+    # Calculate raw polar coordinates
+    dx = pos[0] - arena_center[0]
+    dy = pos[1] - arena_center[1]
+    r = np.sqrt(dx**2 + dy**2)  # Radial distance
+    theta = np.arctan2(dy, dx)  # Angle in radians
+
+    if norm is True:
+        # Normalize radial distance to [0, 1]
+        r_normalized = r / arena_radius
+
+        # Normalize theta to [-1, 1] (tanh-friendly)
+        theta_normalized = theta / np.pi  # θ in [-π, π] becomes [-1, 1]
+
+        return r_normalized, theta_normalized
+    else:
+        return r, theta
+
+
 ##########################################
 #            Ant Environment             #
 ##########################################
@@ -368,7 +400,13 @@ def is_rectangle_in_circle(x, y, circle_center, circle_radius):
 class Ant():
     """Agent class for the ant"""
 
-    def __init__(self, pos, theta = None):
+    def __init__(
+        self,
+        pos,
+        theta = None,
+        arena_center=(SCREEN_W / 2.0, SCREEN_H / 2.0),
+        arena_radius=min(SCREEN_W, SCREEN_H)/2.0 - min(SCREEN_W, SCREEN_H) * BOUNDARY_SCALE
+    ):
         self.pos = vec2d(*pos)
         self.speed = 0.0
         self.theta = theta if theta is not None else 0.0
@@ -392,9 +430,182 @@ class Ant():
         self.V_b = None
         self.V_b_l = None
         self.vision_range = VISION_RANGE
-        self.dist_to_wall = None
+
+        # Initialize distance attributes for each vision segment
+        self.wall_distances = {}
+        self.nearest_ant_distances = {}
 
         self.pheromone = 0.0
+
+        # Arena information
+        self.arena_center = arena_center
+        self.arena_radius = arena_radius
+
+
+    def _get_segment_name(self, idx):
+        """
+        Returns the segment name based on its index.
+
+        Parameters:
+        - idx (int): Index of the vision segment.
+
+        Returns:
+        - str: Name of the vision segment.
+        """
+        segment_names = [
+            'forward_l1', 'forward_l2', 'forward', 'forward_r2',
+            'forward_r1', 'backward_r', 'backward', 'backward_l'
+        ]
+        return segment_names[idx]
+
+
+    def _compute_distance_to_wall(self, angle):
+        """
+        Compute the normalized distance from the ant's current position to the arena wall
+        along a specified angle, scaled between 1 (very close) and 0 (beyond VISION_RANGE).
+
+        Parameters:
+        - angle (float): The angle (in radians) along which to compute the distance.
+
+        Returns:
+        - float: Normalized distance to the wall (1.0 to 0.0).
+                Returns 1.0 if the wall is at zero distance,
+                0.0 if the wall is beyond VISION_RANGE.
+        """
+        x0, y0 = self.pos.x, self.pos.y
+        Cx, Cy = self.arena_center
+        R = self.arena_radius
+
+        dx = math.cos(angle)
+        dy = math.sin(angle)
+
+        # Quadratic equation coefficients: t^2 + 2bt + c = 0
+        a = 1
+        b = (dx * (x0 - Cx) + dy * (y0 - Cy))
+        c = (x0 - Cx) ** 2 + (y0 - Cy) ** 2 - R ** 2
+
+        discriminant = b ** 2 - c
+        if discriminant < 0:
+            # No intersection; should not happen if the ant is inside the arena
+            return 0.0  # Treat as beyond VISION_RANGE
+
+        sqrt_discriminant = math.sqrt(discriminant)
+        t1 = -b + sqrt_discriminant
+        t2 = -b - sqrt_discriminant
+
+        # We need the positive t value
+        t = t1 if t1 >= 0 else t2
+
+        if t < 0:
+            # Both intersections are behind the ant
+            return 0.0  # Treat as beyond VISION_RANGE
+
+        # Scale the distance: 1.0 (very close) to 0.0 (beyond VISION_RANGE)
+        if t <= 0:
+            scaled_distance = 1.0  # Extremely close to the wall
+        elif t >= self.vision_range:
+            scaled_distance = 0.0  # Wall is beyond VISION_RANGE
+        else:
+            scaled_distance = 1.0 - (t / self.vision_range)
+
+        return scaled_distance
+
+
+    # def _detect_distances(self, detected_ants):
+    #     """
+    #     Identify the distance to the wall of the arena and the distance to the nearest ant
+    #     in each cone of vision, scaling such that closer objects (walls or ants) are
+    #     closer to 1 and farther objects (or beyond the vision range) are closer to 0.
+
+    #     Parameters:
+    #     - detected_ants (dict): A dictionary mapping segment names to lists of detected ants.
+    #     """
+
+    #     for idx, (angle_range, _) in enumerate(vision_segments):
+    #         start_angle, stop_angle = angle_range
+    #         segment_name = self._get_segment_name(idx)
+
+    #         # Calculate the central angle of the vision segment
+    #         central_angle = (start_angle + stop_angle) / 2
+    #         # Adjust the central angle based on the agent's current orientation
+    #         central_angle = (self.theta + central_angle) % (2 * math.pi)
+
+    #         # Compute distance to the wall along the central angle
+    #         raw_wall_distance = self._compute_distance_to_wall(central_angle)
+
+    #         # Flip scaling for wall distances: Closer walls = 1, farther walls = scaled to 0
+    #         if raw_wall_distance is not None and raw_wall_distance <= self.vision_range:
+    #             wall_distance = max(1.0 - (raw_wall_distance / self.vision_range), 0.0)
+    #         else:
+    #             wall_distance = 0.0  # Default for no wall detection (out of range)
+
+    #         self.wall_distances[segment_name] = wall_distance
+
+    #         # Find the minimum distance to the nearest ant in this segment
+    #         ants_in_segment = detected_ants.get(segment_name, [])
+    #         if ants_in_segment:
+    #             distances = [
+    #                 math.sqrt((ant[0] - self.pos.x) ** 2 + (ant[1] - self.pos.y) ** 2)
+    #                 for ant in ants_in_segment
+    #             ]
+    #             raw_ant_distance = min(distances)
+    #         else:
+    #             raw_ant_distance = None  # Default for no ants in range
+
+    #         # Flip scaling for ant distances: Closer ants = 1, farther ants = scaled to 0
+    #         if raw_ant_distance is not None and raw_ant_distance <= self.vision_range:
+    #             ant_distance = max(1.0 - (raw_ant_distance / self.vision_range), 0.0)
+    #         else:
+    #             ant_distance = 0.0  # Default for no detection or out of range
+
+    #         self.nearest_ant_distances[segment_name] = ant_distance
+
+    def _detect_distances(self, detected_ants):
+        """
+        Detect distances to walls and ants, and compute a hierarchical composite score for each segment.
+        Returns distances as positive values for ants and negative values for walls, prioritizing the closest object.
+        """
+        for idx, (angle_range, _) in enumerate(vision_segments):
+            segment_name = self._get_segment_name(idx)
+            
+            # Calculate central angle once
+            central_angle = ((self.theta + sum(angle_range) / 2) % (2 * math.pi))
+            
+            # Initialize scaled distances
+            wall_distance_scaled = ant_distance_scaled = 0.0
+            
+            # Get wall distance
+            raw_wall_distance = self._compute_distance_to_wall(central_angle)
+            if raw_wall_distance is not None and raw_wall_distance <= self.vision_range:
+                wall_distance_scaled = 1.0 - (raw_wall_distance / self.vision_range)
+            
+            # Get ant distance
+            ants_in_segment = detected_ants.get(segment_name, [])
+            if ants_in_segment:
+                # Use generator expression instead of list comprehension for efficiency
+                raw_ant_distance = min(
+                    (math.hypot(ant[0] - self.pos.x, ant[1] - self.pos.y) 
+                    for ant in ants_in_segment),
+                    default=None
+                )
+                
+                if raw_ant_distance is not None and raw_ant_distance <= self.vision_range:
+                    ant_distance_scaled = 1.0 - (raw_ant_distance / self.vision_range)
+            
+            # Determine composite score based on closest object
+            if ant_distance_scaled > 0 and (wall_distance_scaled == 0 or 
+                raw_ant_distance < raw_wall_distance):
+                composite_score = ant_distance_scaled  # Positive for ants
+            elif wall_distance_scaled > 0:
+                composite_score = -wall_distance_scaled  # Negative for walls
+            else:
+                composite_score = 0.0
+            
+            # Store all scores at once
+            self.composite_scores[segment_name] = composite_score
+            self.wall_distances[segment_name] = wall_distance_scaled
+            self.nearest_ant_distances[segment_name] = ant_distance_scaled
+
 
     def _detect_vision(self, detected_ants: dict, total_colony_size: int, max_value: float = 1.0):
         """
@@ -454,53 +665,52 @@ class Ant():
 
     def _detect_nearby_ants(self, other_ants):
         """
-        Detects other ants within a specified radius and identifies their relative
-        position segment based on this ant's orientation.
-
+        Detects other ants within vision range and categorizes them into vision segments.
+        
         Parameters:
         - other_ants (list of tuples): The (x, y) positions of other ants.
-
+        
         Returns:
-        - dict: A dictionary mapping segment names to a list of ants
-                (represented by their positions) that are within the specified
-                radius and fall into that relative segment.
+        - dict: Maps segment names to lists of ant positions within that segment.
         """
-        # Define the segments
-        detected_ants = {
-            'forward_l1': [], 'forward_l2': [], 'forward': [], 'forward_r2': [], 'forward_r1': [],
-            'backward_r': [], 'backward': [], 'backward_l': []
-        }
-        segment_boundaries = {
-            'forward_l1': tuple((self.theta + angle) % (2 * math.pi) for angle in vision_segments[0][0]),
-            'forward_l2': tuple((self.theta + angle) % (2 * math.pi) for angle in vision_segments[1][0]),
-            'forward':    tuple((self.theta + angle) % (2 * math.pi) for angle in vision_segments[2][0]),
-            'forward_r2': tuple((self.theta + angle) % (2 * math.pi) for angle in vision_segments[3][0]),
-            'forward_r1': tuple((self.theta + angle) % (2 * math.pi) for angle in vision_segments[4][0]),
-            'backward_r': tuple((self.theta + angle) % (2 * math.pi) for angle in vision_segments[5][0]),
-            'backward':   tuple((self.theta + angle) % (2 * math.pi) for angle in vision_segments[6][0]),
-            'backward_l': tuple((self.theta + angle) % (2 * math.pi) for angle in vision_segments[7][0]),
-        }
-
-        for other_ant in other_ants:
-            dx = other_ant[0] - self.pos.x
-            dy = other_ant[1] - self.pos.y
-            distance = math.sqrt(dx**2 + dy**2)
-
-            if distance <= self.vision_range:
-                # Calculate angle from self.pos to other_ant.pos, adjusting with self.theta
+        # Pre-calculate common values
+        vision_range_squared = self.vision_range ** 2
+        segment_names = ('forward_l1', 'forward_l2', 'forward', 'forward_r2', 
+                        'forward_r1', 'backward_r', 'backward', 'backward_l')
+        
+        # Initialize detected_ants with empty lists using dict comprehension
+        detected_ants = {name: [] for name in segment_names}
+        
+        # Pre-calculate segment boundaries once
+        segment_boundaries = []
+        for idx, (angle_range, _) in enumerate(vision_segments):
+            start = (self.theta + angle_range[0]) % (2 * math.pi)
+            stop = (self.theta + angle_range[1]) % (2 * math.pi)
+            segment_boundaries.append((start, stop, segment_names[idx]))
+        
+        # Process each ant
+        pos_x, pos_y = self.pos.x, self.pos.y
+        for ant_x, ant_y in other_ants:
+            # Use faster distance calculation without sqrt for initial check
+            dx = ant_x - pos_x
+            dy = ant_y - pos_y
+            distance_squared = dx * dx + dy * dy
+            
+            if distance_squared <= vision_range_squared:
+                # Only calculate angle for ants within range
                 angle_to_ant = math.atan2(dy, dx) % (2 * math.pi)
-                # Determine segment based on relative_angle
-                for segment, (start_angle, stop_angle) in segment_boundaries.items():
+                
+                # Find matching segment
+                for start_angle, stop_angle, segment_name in segment_boundaries:
                     if start_angle < stop_angle:
                         if start_angle <= angle_to_ant <= stop_angle:
-                            detected_ants[segment].append(other_ant)
+                            detected_ants[segment_name].append((ant_x, ant_y))
                             break
-                    else:
-                        # Angle wraps around the 2π boundary
-                        if angle_to_ant >= start_angle or angle_to_ant <= stop_angle:
-                            detected_ants[segment].append(other_ant)
-                            break
-
+                    elif angle_to_ant >= start_angle or angle_to_ant <= stop_angle:
+                        # Angle wraps around 2π boundary
+                        detected_ants[segment_name].append((ant_x, ant_y))
+                        break
+        
         return detected_ants
 
 
@@ -508,12 +718,29 @@ class Ant():
         self.pheromone = pheromone
 
 
+    def get_polar_position(self):
+            """
+            Returns the agent's position in normalized polar coordinates.
+
+            Returns:
+            - r: float, radial distance normalized to [0, 1].
+            - theta: float, angle normalized to [-1, 1].
+            """
+            r, theta = to_polar_coordinates(
+                pos=(self.pos.x, self.pos.y),
+                arena_center=self.arena_center,
+                arena_radius=self.arena_radius,
+                norm=True
+            )
+            return r, theta
+
+
     def _turn(self):
         self.theta += self.theta_dot
         self.theta = self.theta % (2 * math.pi)
 
 
-    def _move(self, arena):
+    def _move(self):
         """
         Move an agent from its current position (x, y) according to desired_speed
         and angle theta using matrix multiplication.
@@ -523,7 +750,7 @@ class Ant():
         # Set the desired position based on direction and speed relative to timestep
         desired_pos = np.add(np.array(self.pos), direction)
         # If leaving the cirle, push agent back into circle.
-        if is_rectangle_in_circle(desired_pos[0], desired_pos[1], arena[0], arena[1]):
+        if is_rectangle_in_circle(desired_pos[0], desired_pos[1], self.arena_center, self.arena_radius):
             self.pos = vec2d(desired_pos[0], desired_pos[1])
 
 
@@ -541,14 +768,17 @@ class Ant():
         self.desired_speed = 0
         self.desired_turn_speed = 0
 
-        if (forward and (not backward)):
+        if (forward and (not backward) and distance is not None):
             # self.desired_speed = AGENT_SPEED # * TIMESTEP
             self.desired_speed = distance
-        if (backward and (not forward)):
+        if (backward and (not forward) and distance is not None):
             # self.desired_speed = -AGENT_SPEED # * TIMESTEP
             self.desired_speed = -distance
 
-        self.theta = rotation
+        if rotation is not None:
+            self.theta = rotation
+        else:
+            self.theta = -1
 
         # If no turn, reset the turn timers
         if not turn_left and not turn_right:
@@ -559,18 +789,30 @@ class Ant():
 
     def get_obs(self, others = None):
         if others is not None:
-            self._detect_vision(self._detect_nearby_ants(others), len(others))
+            detected_ants = self._detect_nearby_ants(others)
+            self._detect_vision(detected_ants, len(others))
+            self._detect_distances(detected_ants)
+        r_norm, theta_norm = self.get_polar_position()
         result = [
-            self.pos.x, self.pos.y, self.speed,
+            r_norm, theta_norm, self.speed,
             self.theta, self.theta_dot,
             self.V_f_l1, self.V_f_l2, self.V_f, self.V_f_r2, self.V_f_r1,
             self.V_b_r, self.V_b, self.V_b_l,
             self.pheromone
         ]
+
+        # Include wall distances and nearest ant distances
+        for segment in self.wall_distances:
+            wall_dist = self.wall_distances[segment]
+            wall_dist = wall_dist if wall_dist is not None else self.vision_range
+            nearest_ant_dist = self.nearest_ant_distances.get(segment, self.vision_range)
+            nearest_ant_dist = nearest_ant_dist if nearest_ant_dist is not None else self.vision_range
+            result.extend([wall_dist, nearest_ant_dist])
+
         return result
 
 
-    def update(self, arena, noise=0.0):
+    def update(self, noise=0.0):
         self.pos = vec2d(
             self.pos.x + np.random.randn() * noise,
             self.pos.y - np.random.randn() * noise
@@ -582,7 +824,7 @@ class Ant():
         self.theta_dot = self.desired_turn_speed
 
         # self._turn()
-        self._move(arena)
+        self._move()
 
 
 class AntDynamicsEnv(gym.Env):
@@ -633,16 +875,23 @@ class AntDynamicsEnv(gym.Env):
             min(SCREEN_W, SCREEN_H)/2.0 - min(SCREEN_W, SCREEN_H) * BOUNDARY_SCALE
         )
 
-        high = np.array([
-            np.finfo(np.float32).max,
-            np.finfo(np.float32).max,
-            np.finfo(np.float32).max,
-            np.finfo(np.float32).max,
-            np.finfo(np.float32).max
-        ])
+        # Determine the number of additional observations
+        num_segments = len(vision_segments)
+        additional_obs = num_segments * 2  # wall_distance and nearest_ant_distance per segment
 
-        self.action_space = spaces.Box(-1.0, 1.0, shape=(1,), dtype=float)
-        self.observation_space = spaces.Box(-high, high, dtype=float)
+        # Calculate the total number of observation elements
+        base_obs_length = 14  # Number of elements in the initial 'result' list
+        total_obs_length = base_obs_length + additional_obs
+
+        high = np.array([np.finfo(np.float32).max] * total_obs_length)
+
+        # Update the observation space to include additional observations
+        self.observation_space = spaces.Box(
+            low=-high,
+            high=high,
+            shape=(total_obs_length,),
+            dtype=np.float32
+        )
 
         # Load the ant trail dataset
         if not type(self).ant_trail_data:
@@ -874,54 +1123,6 @@ class AntDynamicsEnv(gym.Env):
         return diff
 
 
-    def _calculate_target_data(self, trail):
-        target_data = {
-            'angle': [],
-            'distance': [],
-            'action': [],    # FORWARD, BACKWARD, TURN-LEFT, TURN-RIGHT, STOP, ...
-        }
-
-        time = 0
-        while time < len(trail) - 1:
-            # Calculate current and next position
-            current_pos = trail[int(time)]
-            next_pos = trail[int(time) + 1]
-
-            # Calculate distance and angle to the next position
-            dx = next_pos[0] - current_pos[0]
-            dy = next_pos[1] - current_pos[1]
-            distance = math.sqrt(dx**2 + dy**2)
-            angle_to_target = math.atan2(dy, dx)
-
-            # Determine angle difference from current orientation
-            angle_diff = self._angle_difference(self.ant.theta, angle_to_target)
-
-            # Determine the action required to move towards the next position
-            action = None
-            if distance > 0.05:
-                action = "FORWARD"
-            else:
-                action = "STOP"
-            
-            if action is None:
-                action = "TURN"
-            if abs(angle_diff) > 0.02:  # Further reduce the turning threshold for finer control  # Reduce the turning threshold
-                if angle_diff > 0:
-                    action += "-RIGHT"
-                else:
-                    action = "-LEFT"
-
-            # Append calculated values to target_data for each time step
-            target_data['distance'].append(distance)
-            target_data['angle'].append(angle_diff)
-            target_data['action'].append(action)
-
-            # Move to the next time step (smaller increment for finer control)
-            time += 1
-
-        return target_data
-
-
     def _calculate_area_between_trails(self, trail1, trail2):
         """
         Calculate the area between two trajectories.
@@ -990,19 +1191,13 @@ class AntDynamicsEnv(gym.Env):
         Calculate the reward given the focal ant and the accuracy of its behaviour
         over the trial, given the source data as the ground truth.
         """
-        if REWARD_TYPE.lower() == 'trail':
-            reward = self._calculate_area_between_trails(
-                self.ant_trail,
-                self.target_trail
-            )
-
-            return reward * -1
-            
-        elif REWARD_TYPE.lower() == 'action':
+        if REWARD_TYPE.lower() == 'action':
             return self._calculate_action_reward(actions, self.target_trail, self.t)
+        else:
+            return -69
 
     def get_observations(self, others = None):
-        return np.sum(self.ant.get_obs(others))
+        return self.ant.get_obs(others)
 
 
     def _track_trail(self, pos: vec2d):
@@ -1042,9 +1237,6 @@ class AntDynamicsEnv(gym.Env):
                         others=True,
                         trail_len=TIME_LIMIT
                     )
-        
-        # self.target_data = self._calculate_target_data(self.target_trail)
-        # self.ant.theta = self._get_angle_from_trajectory(self.target_trail, self.t)
 
         _, pheromone = self._get_average_pheromone_vectorized(
             self.ant.pos,
@@ -1054,11 +1246,15 @@ class AntDynamicsEnv(gym.Env):
         self.ant.set_pheromone(pheromone)
         
         obs = self.get_observations(self.other_ants[:,self.t])
+        info = {
+            'wall_distances': self.ant.wall_distances,
+            'nearest_ant_distances': self.ant.nearest_ant_distances
+        }
 
         if self.render_mode == 'human':
             self._render_frame()
 
-        return obs
+        return obs ,info
 
 
     def close(self):
@@ -1068,7 +1264,6 @@ class AntDynamicsEnv(gym.Env):
 
 
     def _get_action(self, dt):
-
         target_data = {
             'angle': [],
             'distance': [],
@@ -1140,6 +1335,10 @@ class AntDynamicsEnv(gym.Env):
                     action[2] = 1
                 elif angle_diff > 0:
                     action[3] = 1
+
+            else:
+                self.target_data['distance'].append(None)
+                self.target_data['angle'].append(None)
         
         target_data = {
             'angle': self.target_data['angle'].pop(),
@@ -1164,11 +1363,11 @@ class AntDynamicsEnv(gym.Env):
         auto_action = [0, 0, 0, 0]  # [FORWARD, BACKWARD, TURN_LEFT, TURN_RIGHT]
 
         # Update the ant position and orientation with the calculated distance and rotation
-        auto_action, movement_info = self._get_stepped_action(3)
+        auto_action, movement_info = self._get_stepped_action(2)
         # print(movement_info['distance'], movement_info['angle'])
         self.ant.set_action(auto_action, movement_info['distance'], movement_info['angle'])
         # self.ant.set_action(auto_action, movement_info['distance'], self.target_angles[self.t][1])
-        self.ant.update(self.ant_arena)
+        self.ant.update()
 
         # Get observations of other ants in the arena
         obs = self.get_observations(self.other_ants[:, self.t])
@@ -1180,13 +1379,14 @@ class AntDynamicsEnv(gym.Env):
 
         # Initialize reward value
         reward = 0
-        if done and REWARD_TYPE == 'trail':
-            reward = self._reward_function()
         if REWARD_TYPE == 'action':
             reward = self._reward_function(auto_action)
 
         # Additional information (if necessary)
-        info = {}
+        info = {
+            'wall_distances': self.ant.wall_distances,
+            'nearest_ant_distances': self.ant.nearest_ant_distances
+        }
 
         return obs, reward, done, info
 
@@ -1219,7 +1419,7 @@ class AntDynamicsEnv(gym.Env):
         pygame.draw.circle(
             canvas,
             (230, 230, 230),
-            (int(self.ant_arena[0][0]), int(self.ant_arena[0][1])),  # Center of the arena
+            (int(self.ant_arena[0][0]), int(self.ant_arena[0][1])),  # center of the arena
             int(self.ant_arena[1])  # Radius
         )
 
@@ -1286,10 +1486,68 @@ class AntDynamicsEnv(gym.Env):
                     )
                 )
 
+        # Draw wall distance indicators
+        # for segment, distance in self.ant.wall_distances.items():
+        #     if distance is not None:
+        #         # Calculate the central angle of the segment
+        #         segment_idx = ['forward_l1', 'forward_l2', 'forward', 'forward_r2',
+        #                     'forward_r1', 'backward_r', 'backward', 'backward_l'].index(segment)
+        #         angle_range, _ = vision_segments[segment_idx]
+        #         central_angle = (angle_range[0] + angle_range[1]) / 2
+        #         central_angle = (self.ant.theta + central_angle) % (2 * math.pi)
+
+        #         # Calculate end point based on wall distance
+        #         end_x = int(self.ant.pos.x + math.cos(central_angle) * distance)
+        #         end_y = int(self.ant.pos.y + math.sin(central_angle) * distance)
+
+        #         # Draw a line from the ant to the wall
+        #         pygame.draw.line(
+        #             canvas,
+        #             (255, 0, 0),  # Red color for wall distance
+        #             (int(self.ant.pos.x), int(self.ant.pos.y)),
+        #             (end_x, end_y),
+        #             1
+        #         )
+
+        # Draw nearest ant distance indicators
+        for segment, distance in self.ant.nearest_ant_distances.items():
+            if distance is not None:
+                # Calculate the central angle of the segment
+                segment_idx = ['forward_l1', 'forward_l2', 'forward', 'forward_r2',
+                            'forward_r1', 'backward_r', 'backward', 'backward_l'].index(segment)
+                angle_range, _ = vision_segments[segment_idx]
+                central_angle = (angle_range[0] + angle_range[1]) / 2
+                central_angle = (self.ant.theta + central_angle) % (2 * math.pi)
+
+                # Calculate end point based on nearest ant distance
+                end_x = int(self.ant.pos.x + math.cos(central_angle) * distance)
+                end_y = int(self.ant.pos.y + math.sin(central_angle) * distance)
+
+                # Draw a line from the ant to the nearest ant
+                pygame.draw.line(
+                    canvas,
+                    (0, 255, 0),  # Green color for nearest ant distance
+                    (int(self.ant.pos.x), int(self.ant.pos.y)),
+                    (end_x, end_y),
+                    1
+                )
+
         ### DRAW TRAILS FIRST
 
         # Draw projected target trail
-        if REWARD_TYPE.lower() == 'trail':
+        try:
+            for pos in self.target_trail[:self.t+1]:
+                pygame.draw.rect(
+                    canvas,
+                    (220, 180, 180),
+                    (
+                        pos[0] - ANT_DIM.x/2.,
+                        pos[1] - ANT_DIM.y/2.,
+                        ANT_DIM.x,
+                        ANT_DIM.y
+                    )
+                )
+        except IndexError:
             for pos in self.target_trail:
                 pygame.draw.rect(
                     canvas,
@@ -1301,31 +1559,6 @@ class AntDynamicsEnv(gym.Env):
                         ANT_DIM.y
                     )
                 )
-        else:
-            try:
-                for pos in self.target_trail[:self.t+1]:
-                    pygame.draw.rect(
-                        canvas,
-                        (220, 180, 180),
-                        (
-                            pos[0] - ANT_DIM.x/2.,
-                            pos[1] - ANT_DIM.y/2.,
-                            ANT_DIM.x,
-                            ANT_DIM.y
-                        )
-                    )
-            except IndexError:
-                for pos in self.target_trail:
-                    pygame.draw.rect(
-                        canvas,
-                        (220, 180, 180),
-                        (
-                            pos[0] - ANT_DIM.x/2.,
-                            pos[1] - ANT_DIM.y/2.,
-                            ANT_DIM.x,
-                            ANT_DIM.y
-                        )
-                    )
 
         # Draw ant trail
         trail_length = len(self.ant_trail)
@@ -1422,7 +1655,7 @@ if __name__ == "__main__":
     env = AntDynamicsEnv(render_mode='human')
     
     total_reward = 0
-    obs = env.reset()
+    obs, info = env.reset()
 
     manual_mode = True
     manual_action = [0, 0, 0, 0]
@@ -1450,7 +1683,7 @@ if __name__ == "__main__":
             action = manual_action
             if done: break
 
-        obs, reward, done, _ = env.step(action)
+        obs, reward, done, info = env.step(action)
         total_reward += reward
 
         if done: break
