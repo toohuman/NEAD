@@ -72,7 +72,7 @@ vision_segments = [
     ((-5 * math.pi / 6, -math.pi / 2), (255, 192, 203)),
 ]
 
-REWARD_TYPE = 'action' # 'action', 'coverage', 'aggregation'
+REWARD_TYPE = 'coverage' # 'action', 'coverage', 'aggregation'
 TRACK_TRAIL = 'all' # 'all', 'fade', 'none'
 MOVEMENT_THRESHOLD = 10
 FADE_DURATION = 5 # seconds
@@ -432,6 +432,7 @@ class Ant():
         self.vision_range = VISION_RANGE
 
         # Initialize distance attributes for each vision segment
+        self.composite_scores = {}
         self.wall_distances = {}
         self.nearest_ant_distances = {}
 
@@ -787,28 +788,52 @@ class Ant():
 
         return [int(x) for x in [forward, backward, turn_left, turn_right]]
 
-    def get_obs(self, others = None):
+
+    def get_obs(self, others=None):
+        """
+        Generate the observation vector for the neural network, incorporating
+        composite scores that encode both wall and ant distances for each vision segment.
+
+        Parameters:
+        - others (list, optional): A list of other ant agents to detect.
+
+        Returns:
+        - list: The observation vector containing normalized positions, velocities,
+                vision segment data, and pheromone levels.
+        """
         if others is not None:
             detected_ants = self._detect_nearby_ants(others)
             self._detect_vision(detected_ants, len(others))
             self._detect_distances(detected_ants)
+        
+        # Get the agent's position in polar coordinates
         r_norm, theta_norm = self.get_polar_position()
+        
+        # Initialize the observation vector with basic state information
         result = [
-            r_norm, theta_norm, self.speed,
-            self.theta, self.theta_dot,
-            self.V_f_l1, self.V_f_l2, self.V_f, self.V_f_r2, self.V_f_r1,
-            self.V_b_r, self.V_b, self.V_b_l,
-            self.pheromone
+            r_norm,                # Normalized radial position
+            theta_norm,            # Normalized angular position
+            self.speed,            # Current speed
+            self.theta,            # Current orientation
+            self.theta_dot,        # Angular velocity
+            self.V_f_l1,           # Vision segment: Forward Left 1
+            self.V_f_l2,           # Vision segment: Forward Left 2
+            self.V_f,              # Vision segment: Forward
+            self.V_f_r2,           # Vision segment: Forward Right 2
+            self.V_f_r1,           # Vision segment: Forward Right 1
+            self.V_b_r,            # Vision segment: Backward Right
+            self.V_b,              # Vision segment: Backward
+            self.V_b_l,            # Vision segment: Backward Left
+            self.pheromone         # Current pheromone level
         ]
 
-        # Include wall distances and nearest ant distances
-        for segment in self.wall_distances:
-            wall_dist = self.wall_distances[segment]
-            wall_dist = wall_dist if wall_dist is not None else self.vision_range
-            nearest_ant_dist = self.nearest_ant_distances.get(segment, self.vision_range)
-            nearest_ant_dist = nearest_ant_dist if nearest_ant_dist is not None else self.vision_range
-            result.extend([wall_dist, nearest_ant_dist])
-
+        # Include composite scores for each vision segment
+        # Ensure that the segments are ordered consistently
+        for idx, (angle_range, _) in enumerate(vision_segments):
+            segment_name = self._get_segment_name(idx)
+            composite_score = self.composite_scores.get(segment_name, 0.0)
+            result.append(composite_score)
+        
         return result
 
 
@@ -1193,6 +1218,8 @@ class AntDynamicsEnv(gym.Env):
         """
         if REWARD_TYPE.lower() == 'action':
             return self._calculate_action_reward(actions, self.target_trail, self.t)
+        elif REWARD_TYPE.lower() == 'coverage':
+            return self._calculate_coverage_reward()
         else:
             return -69
 
@@ -1379,8 +1406,7 @@ class AntDynamicsEnv(gym.Env):
 
         # Initialize reward value
         reward = 0
-        if REWARD_TYPE == 'action':
-            reward = self._reward_function(auto_action)
+        reward = self._reward_function(auto_action)
 
         # Additional information (if necessary)
         info = {
