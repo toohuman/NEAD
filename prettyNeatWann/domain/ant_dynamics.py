@@ -1448,10 +1448,8 @@ class AntDynamicsEnv(gym.Env):
             ant.set_action(auto_action, movement_info['distance'], movement_info['angle'])
             ant.update()
 
-            # Get observations of other ants in the arena
-            other_ants_positions = [other_ant.pos for j, other_ant in enumerate(self.ants) if j != i]
-            obs = ant.get_obs(other_ants_positions)
-            all_obs.append(obs)
+        # Get observations for all ants
+        all_obs = self.get_observations()
 
             # Track trail for each ant
             self._track_trail(ant.pos)
