@@ -51,6 +51,8 @@ VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
 DRAW_ANT_VISION = True
 DRAW_PHEROMONES = False
+MULTIPLE_ANTS = True  # Whether to include other ants in the simulation
+LOAD_ANTS = True     # Whether to load real ant data or use empty list
 
 vision_segments = [
     # Front arc: Directly in front of the agent
@@ -960,10 +962,14 @@ class AntDynamicsEnv(gym.Env):
         # If showing positions of other ants during the trail
         other_ants = None
         if others:
-            other_ants = np.zeros(
-                (num_ants - 1, trail_length, len(trail_data.columns.levels[1])),
-                dtype=float
-            )
+            if LOAD_ANTS:
+                other_ants = np.zeros(
+                    (num_ants - 1, trail_length, len(trail_data.columns.levels[1])),
+                    dtype=float
+                )
+            else:
+                # Empty list for now, can be populated with artificial ants later
+                other_ants = np.array([])
 
         start = self.np_random.integers(len(trail_data) - trail_length)
         indices = list(self.np_random.permutation(num_ants))
@@ -1280,7 +1286,7 @@ class AntDynamicsEnv(gym.Env):
             self.target_trail, self.target_angles, self.target_distances, \
                 self.other_ants, self.other_ants_angles = \
                     self._select_target(
-                        others=True,
+                        others=MULTIPLE_ANTS,
                         trail_len=TIME_LIMIT
                     )
 
