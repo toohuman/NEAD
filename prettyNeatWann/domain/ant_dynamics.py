@@ -1178,36 +1178,44 @@ class AntDynamicsEnv(gym.Env):
         return total_area
 
 
-    def _calculate_action_reward(self, actions, target_trail, time):
+    def _calculate_coverage_reward(self):
         """
-        Calculate the reward for a given time step based on the similarity between
-        the agent's actions and the historical actions of the target ant.
+        Calculate reward based on the percentage of arena area covered by the ant's trail.
+        Updates coverage grid and returns reward based on new cells visited.
         """
-        # Extract the actual action from the target data
-        target_action = "FORWARD"
-
-        # Extract agent's chosen actions from the outputs
-        forward, backward, turn_left, turn_right = actions
-
-        # Determine the predicted action from agent's outputs based on thresholds
-        action = "STOP"
-        if forward > 0.5 and backward <= 0.5:
-            action = "FORWARD"
-        elif backward > 0.5 and forward <= 0.5:
-            action = "BACKWARD"
-        if turn_left > 0.5 and turn_right <= 0.5:
-            action += "-LEFT"
-        elif turn_right > 0.5 and turn_left <= 0.5:
-            action += "-RIGHT"
-
-        # Reward Calculation
-        if action == target_action:
-            reward = 1.0  # Full reward for an exact match
-        elif action.startswith(target_action.split('-')[0]):
-            reward = 0.5  # Partial reward if the base action is correct but the direction is wrong
-        else:
-            reward = -1.0  # Negative reward for incorrect actions
-
+        # Convert ant's position to grid coordinates
+        grid_x = int(self.ant.pos.x * 50 / SCREEN_W)
+        grid_y = int(self.ant.pos.y * 50 / SCREEN_H)
+        
+        # Ensure coordinates are within bounds
+        grid_x = max(0, min(grid_x, 49))
+        grid_y = max(0, min(grid_y, 49))
+        
+        reward = 0.0
+        
+        # Check if this cell is within the arena and hasn't been visited
+        if self.arena_mask[grid_y, grid_x] and not self.coverage_grid[grid_y, grid_x]:
+            # Mark cell as visited
+            self.coverage_grid[grid_y, grid_x] = True
+            
+            # Calculate current coverage percentage
+            total_arena_cells = np.sum(self.arena_mask)
+            visited_arena_cells = np.sum(self.coverage_grid & self.arena_mask)
+            coverage_percentage = visited_arena_cells / total_arena_cells
+            
+            # Reward for visiting new cell
+            reward = 1.0 / total_arena_cells  # Equal reward per cell
+            
+            # Bonus for reaching coverage milestones
+            if coverage_percentage >= 0.5 and coverage_percentage < 0.51:  # 50% coverage
+                reward += 0.5
+            elif coverage_percentage >= 0.75 and coverage_percentage < 0.76:  # 75% coverage
+                reward += 0.75
+            elif coverage_percentage >= 0.9 and coverage_percentage < 0.91:  # 90% coverage
+                reward += 1.0
+            elif coverage_percentage >= 0.99:  # Complete coverage
+                reward += 2.0
+        
         return reward
 
 
@@ -1254,6 +1262,17 @@ class AntDynamicsEnv(gym.Env):
         self.t = 0      # timestep reset
         self.steps_beyond_done = None
 
+        # Initialize coverage grid (50x50) for tracking visited cells
+        self.coverage_grid = np.zeros((50, 50), dtype=bool)
+        self.arena_mask = np.zeros((50, 50), dtype=bool)
+        
+        # Create arena mask for valid cells
+        center_x = 25  # Center of 50x50 grid
+        center_y = 25
+        y, x = np.ogrid[-center_y:50-center_y, -center_x:50-center_x]
+        mask_radius = (min(50, 50) / 2) * 0.98  # Slightly smaller than arena
+        self.arena_mask = x*x + y*y <= mask_radius*mask_radius
+        
         self.actions = []
 
         self.time_offset,\
@@ -1399,6 +1418,12 @@ class AntDynamicsEnv(gym.Env):
         # Get observations of other ants in the arena
         obs = self.get_observations(self.other_ants[:, self.t])
         self._track_trail(self.ant.pos)
+        
+        # Update coverage grid with current position
+        grid_x = int(self.ant.pos.x * 50 / SCREEN_W)
+        grid_y = int(self.ant.pos.y * 50 / SCREEN_H)
+        if 0 <= grid_x < 50 and 0 <= grid_y < 50:
+            self.coverage_grid[grid_y, grid_x] = True
 
         # Determine if the episode is done
         if self.t >= self.t_limit:
