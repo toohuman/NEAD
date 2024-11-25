@@ -1285,14 +1285,22 @@ class AntDynamicsEnv(gym.Env):
         
         self.actions = []
 
-        self.time_offset,\
-            self.ant,\
-            self.target_trail, self.target_angles, self.target_distances, \
-                self.other_ants, self.other_ants_angles = \
-                    self._select_target(
-                        others=MULTIPLE_ANTS,
-                        trail_len=TIME_LIMIT
-                    )
+        # Initialize multiple agents
+        for i in range(self.num_agents):
+            time_offset, ant, target_trail, target_angles, target_distances, other_ants, other_ants_angles = \
+                self._select_target(
+                    others=MULTIPLE_ANTS,
+                    trail_len=TIME_LIMIT
+                )
+            
+            self.ants.append(ant)
+            if i == 0:  # Store main agent's data
+                self.time_offset = time_offset
+                self.target_trail = target_trail
+                self.target_angles = target_angles
+                self.target_distances = target_distances
+                self.other_ants = other_ants
+                self.other_ants_angles = other_ants_angles
 
         _, pheromone = self._get_average_pheromone_vectorized(
             self.ant.pos,
