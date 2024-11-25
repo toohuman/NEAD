@@ -1461,6 +1461,8 @@ class AntDynamicsEnv(gym.Env):
         # Get observations for all ants
         all_obs = self.get_observations()
 
+        # For each ant, track trail and update rewards
+        for i, ant in enumerate(self.ants):
             # Track trail for each ant
             self._track_trail(ant.pos)
             
