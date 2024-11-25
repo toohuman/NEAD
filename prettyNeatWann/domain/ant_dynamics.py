@@ -1242,7 +1242,16 @@ class AntDynamicsEnv(gym.Env):
             return -69
 
     def get_observations(self, others = None):
-        return self.ant.get_obs(others)
+        """
+        Get observations for the main ant (first ant in self.ants list)
+        
+        Parameters:
+        - others: Optional positions of other ants to detect
+        
+        Returns:
+        - Observations from the main ant's perspective
+        """
+        return self.ants[0].get_obs(others)
 
 
     def _track_trail(self, pos: vec2d):
