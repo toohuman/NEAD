@@ -53,6 +53,7 @@ DRAW_ANT_VISION = True
 DRAW_PHEROMONES = False
 MULTIPLE_ANTS = True  # Whether to include other ants in the simulation
 LOAD_ANTS = True     # Whether to load real ant data or use empty list
+NUM_AGENTS = 3       # Number of agents to simulate
 
 vision_segments = [
     # Front arc: Directly in front of the agent
@@ -863,11 +864,14 @@ class AntDynamicsEnv(gym.Env):
     ant_trail_data = None
     pheromone_data = None
 
-    def __init__(self, render_mode=None):
+    def __init__(self, render_mode=None, num_agents=NUM_AGENTS):
         self.np_random, seed = self.seed(seed=69)
-
-        self.ant = None
-        self.ant_trail = []
+        self.num_agents = num_agents
+        
+        # List to store all agent instances
+        self.ants = []
+        # List of trails for each ant
+        self.ant_trails = [[] for _ in range(num_agents)]
 
         self.target_trail = None
         self.target_data = {
