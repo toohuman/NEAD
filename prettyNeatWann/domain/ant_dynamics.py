@@ -1302,12 +1302,13 @@ class AntDynamicsEnv(gym.Env):
                 self.other_ants = other_ants
                 self.other_ants_angles = other_ants_angles
 
+        # Set pheromone for main ant (first ant)
         _, pheromone = self._get_average_pheromone_vectorized(
-            self.ant.pos,
+            self.ants[0].pos,
             self._snapshot_index,
             coarse_grid_size=(50,50)
         )
-        self.ant.set_pheromone(pheromone)
+        self.ants[0].set_pheromone(pheromone)
         
         obs = self.get_observations(self.other_ants[:,self.t])
         info = {
@@ -1339,7 +1340,7 @@ class AntDynamicsEnv(gym.Env):
         time = 0
         while self.t + time < len(self.target_trail) - 1 and time < dt:
             # Calculate current and next position
-            current_pos = self.ant.pos
+            current_pos = self.ants[0].pos
             next_pos = self.target_trail[self.t + int(time) + 1]
 
             # Calculate distance and angle to the next position
@@ -1351,7 +1352,7 @@ class AntDynamicsEnv(gym.Env):
             info['target_angle'] = angle_to_target
 
             # Determine angle difference from current orientation
-            angle_diff = self._angle_difference(self.ant.theta, angle_to_target)
+            angle_diff = self._angle_difference(self.ants[0].theta, angle_to_target)
             info['rotation'] = angle_diff
 
             if distance > 0.05:
