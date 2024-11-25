@@ -1411,9 +1411,9 @@ class AntDynamicsEnv(gym.Env):
 
         return action, target_data
 
-    def step(self, action):
+    def step(self, actions):
         """
-        Each step, take the given action and return observations, reward, done (bool)
+        Each step, take actions for all agents and return observations, rewards, done flags
         and any other additional information if necessary.
         """
         done = False
@@ -1423,41 +1423,51 @@ class AntDynamicsEnv(gym.Env):
         if self.render_mode == "human":
             self._render_frame()
 
-        # Implement target_data actions using auto_action controls
-        auto_action = [0, 0, 0, 0]  # [FORWARD, BACKWARD, TURN_LEFT, TURN_RIGHT]
+        # Lists to store observations and rewards for all agents
+        all_obs = []
+        all_rewards = []
+        all_infos = []
 
-        # Update the ant position and orientation with the calculated distance and rotation
-        auto_action, movement_info = self._get_stepped_action(2)
-        # print(movement_info['distance'], movement_info['angle'])
-        self.ant.set_action(auto_action, movement_info['distance'], movement_info['angle'])
-        # self.ant.set_action(auto_action, movement_info['distance'], self.target_angles[self.t][1])
-        self.ant.update()
+        # Update each agent
+        for i, ant in enumerate(self.ants):
+            # Implement target_data actions using auto_action controls
+            auto_action = [0, 0, 0, 0]  # [FORWARD, BACKWARD, TURN_LEFT, TURN_RIGHT]
 
-        # Get observations of other ants in the arena
-        obs = self.get_observations(self.other_ants[:, self.t])
-        self._track_trail(self.ant.pos)
-        
-        # Update coverage grid with current position
-        grid_x = int(self.ant.pos.x * 50 / SCREEN_W)
-        grid_y = int(self.ant.pos.y * 50 / SCREEN_H)
-        if 0 <= grid_x < 50 and 0 <= grid_y < 50:
-            self.coverage_grid[grid_y, grid_x] = True
+            # Update the ant position and orientation with the calculated distance and rotation
+            auto_action, movement_info = self._get_stepped_action(2)
+            ant.set_action(auto_action, movement_info['distance'], movement_info['angle'])
+            ant.update()
+
+            # Get observations of other ants in the arena
+            other_ants_positions = [other_ant.pos for j, other_ant in enumerate(self.ants) if j != i]
+            obs = ant.get_obs(other_ants_positions)
+            all_obs.append(obs)
+
+            # Track trail for each ant
+            self._track_trail(ant.pos)
+            
+            # Update coverage grid with current position
+            grid_x = int(ant.pos.x * 50 / SCREEN_W)
+            grid_y = int(ant.pos.y * 50 / SCREEN_H)
+            if 0 <= grid_x < 50 and 0 <= grid_y < 50:
+                self.coverage_grid[grid_y, grid_x] = True
+
+            # Calculate reward for each ant
+            reward = self._reward_function(auto_action)
+            all_rewards.append(reward)
+
+            # Additional information for each ant
+            info = {
+                'wall_distances': ant.wall_distances,
+                'nearest_ant_distances': ant.nearest_ant_distances
+            }
+            all_infos.append(info)
 
         # Determine if the episode is done
         if self.t >= self.t_limit:
             done = True
 
-        # Initialize reward value
-        reward = 0
-        reward = self._reward_function(auto_action)
-
-        # Additional information (if necessary)
-        info = {
-            'wall_distances': self.ant.wall_distances,
-            'nearest_ant_distances': self.ant.nearest_ant_distances
-        }
-
-        return obs, reward, done, info
+        return all_obs, all_rewards, done, all_infos
 
 
     def render(self, mode=None):
