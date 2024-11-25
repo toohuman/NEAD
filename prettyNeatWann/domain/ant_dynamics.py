@@ -1639,26 +1639,36 @@ class AntDynamicsEnv(gym.Env):
                     )
                 )
 
-        # Draw ant trail
-        trail_length = len(self.ant_trail)
-        if TRACK_TRAIL == 'all':
-            self.ant_trail_segment = self.ant_trail
-        elif TRACK_TRAIL == 'fade':
-            if trail_length > FADE_DURATION * SIM_FPS:
-                self.ant_trail_segment = self.ant_trail[trail_length - FADE_DURATION * SIM_FPS:]
-        else:
-            self.ant_trail_segment = []
-        for pos in self.ant_trail_segment:
-            pygame.draw.rect(
-                canvas,
-                (180, 180, 220),
-                (
-                    pos.x - ANT_DIM.x/2.,
-                    pos.y - ANT_DIM.y/2.,
-                    ANT_DIM.x,
-                    ANT_DIM.y
+        # Draw trails for all agents
+        for i, trail in enumerate(self.ant_trails):
+            trail_length = len(trail)
+            if TRACK_TRAIL == 'all':
+                trail_segment = trail
+            elif TRACK_TRAIL == 'fade':
+                if trail_length > FADE_DURATION * SIM_FPS:
+                    trail_segment = trail[trail_length - FADE_DURATION * SIM_FPS:]
+                else:
+                    trail_segment = trail
+            else:
+                trail_segment = []
+
+            # Generate unique color for each agent's trail
+            hue = (i * 137.5) % 360  # Golden angle to spread colors evenly
+            r = int((math.sin(hue * math.pi / 180) + 1) * 127.5)
+            g = int((math.sin((hue + 120) * math.pi / 180) + 1) * 127.5)
+            b = int((math.sin((hue + 240) * math.pi / 180) + 1) * 127.5)
+            
+            for pos in trail_segment:
+                pygame.draw.rect(
+                    canvas,
+                    (r, g, b),
+                    (
+                        pos.x - ANT_DIM.x/2.,
+                        pos.y - ANT_DIM.y/2.,
+                        ANT_DIM.x,
+                        ANT_DIM.y
+                    )
                 )
-            )
 
         ### THEN DRAW ANTS AT THEIR CURRENT POSITIONS
 
@@ -1696,26 +1706,36 @@ class AntDynamicsEnv(gym.Env):
             )
         )
 
-        # Draw agent last; to ensure visibility.
-        pygame.draw.rect(
-            canvas,
-            (0, 0, 180),
-            (
-                self.ant.pos.x - ANT_DIM.x/2.,
-                self.ant.pos.y - ANT_DIM.y/2.,
-                ANT_DIM.x,
-                ANT_DIM.y
+        # Draw all agents last to ensure visibility
+        for i, ant in enumerate(self.ants):
+            # Generate unique color for each agent
+            hue = (i * 137.5) % 360
+            r = int((math.sin(hue * math.pi / 180) + 1) * 127.5)
+            g = int((math.sin((hue + 120) * math.pi / 180) + 1) * 127.5)
+            b = int((math.sin((hue + 240) * math.pi / 180) + 1) * 127.5)
+            
+            # Draw agent body
+            pygame.draw.rect(
+                canvas,
+                (r, g, b),
+                (
+                    ant.pos.x - ANT_DIM.x/2.,
+                    ant.pos.y - ANT_DIM.y/2.,
+                    ANT_DIM.x,
+                    ANT_DIM.y
+                )
             )
-        )
-        pygame.draw.line(
-            canvas,
-            (0, 0, 180),
-            (int(self.ant.pos.x), int(self.ant.pos.y)),
-            (
-                int(self.ant.pos.x + np.cos(self.ant.theta) * ANT_DIM.x * 3),
-                int(self.ant.pos.y + np.sin(self.ant.theta) * ANT_DIM.x * 3)
+            
+            # Draw direction indicator
+            pygame.draw.line(
+                canvas,
+                (r, g, b),
+                (int(ant.pos.x), int(ant.pos.y)),
+                (
+                    int(ant.pos.x + np.cos(ant.theta) * ANT_DIM.x * 3),
+                    int(ant.pos.y + np.sin(ant.theta) * ANT_DIM.x * 3)
+                )
             )
-        )
 
         if self.render_mode == 'human':
             self.window.blit(canvas, canvas.get_rect())
