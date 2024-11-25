@@ -1193,9 +1193,9 @@ class AntDynamicsEnv(gym.Env):
         Calculate reward based on the percentage of arena area covered by the ant's trail.
         Updates coverage grid and returns reward based on new cells visited.
         """
-        # Convert ant's position to grid coordinates
-        grid_x = int(self.ant.pos.x * 50 / SCREEN_W)
-        grid_y = int(self.ant.pos.y * 50 / SCREEN_H)
+        # Convert ant's position to grid coordinates using main ant
+        grid_x = int(self.ants[0].pos.x * 50 / SCREEN_W)
+        grid_y = int(self.ants[0].pos.y * 50 / SCREEN_H)
         
         # Ensure coordinates are within bounds
         grid_x = max(0, min(grid_x, 49))
@@ -1545,10 +1545,11 @@ class AntDynamicsEnv(gym.Env):
             # ---- End Pheromone Visualization ----
 
         if DRAW_ANT_VISION:
+            # Draw vision range for main ant (first ant)
             pygame.draw.circle(
                 canvas,
                 (225, 225, 230, 255),
-                (int(self.ant.pos.x), int(self.ant.pos.y)),
+                (int(self.ants[0].pos.x), int(self.ants[0].pos.y)),
                 VISION_RANGE
             )
             for (start_angle, stop_angle), colour in vision_segments:
