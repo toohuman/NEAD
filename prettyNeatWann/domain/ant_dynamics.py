@@ -1241,17 +1241,27 @@ class AntDynamicsEnv(gym.Env):
         else:
             return -69
 
-    def get_observations(self, others = None):
+    def get_observations(self):
         """
-        Get observations for the main ant (first ant in self.ants list)
-        
-        Parameters:
-        - others: Optional positions of other ants to detect
+        Get observations for all ants, where each ant considers all other ants as 'others'
         
         Returns:
-        - Observations from the main ant's perspective
+        - List of observations, one for each ant
         """
-        return self.ants[0].get_obs(others)
+        all_observations = []
+        
+        # For each ant
+        for i, ant in enumerate(self.ants):
+            # Get positions of all ants except the current one
+            other_ant_positions = [(other_ant.pos.x, other_ant.pos.y) 
+                                 for j, other_ant in enumerate(self.ants) 
+                                 if j != i]
+            
+            # Get observations for this ant
+            obs = ant.get_obs(other_ant_positions)
+            all_observations.append(obs)
+        
+        return all_observations
 
 
     def _track_trail(self, pos: vec2d):
