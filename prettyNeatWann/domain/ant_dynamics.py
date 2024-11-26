@@ -1341,7 +1341,10 @@ class AntDynamicsEnv(gym.Env):
         )
         self.ant.set_pheromone(pheromone)
         
-        obs = self.get_observations(self.other_ants[:,self.t])
+        if self.other_ants is not None:
+            obs = self.get_observations(self.other_ants[:,self.t])
+        else:
+            obs = self.get_observations()
         info = {
             'wall_distances': self.ant.wall_distances,
             'nearest_ant_distances': self.ant.nearest_ant_distances
@@ -1470,7 +1473,10 @@ class AntDynamicsEnv(gym.Env):
             self._update_pheromone_grid()
 
         # Get observations of other ants in the arena
-        obs = self.get_observations(self.other_ants[:, self.t])
+        if self.other_ants is not None:
+            obs = self.get_observations(self.other_ants[:, self.t])
+        else:
+            obs = self.get_observations()
         self._track_trail(self.ant.pos)
         
         # Update coverage grid with current position
