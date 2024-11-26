@@ -166,3 +166,4 @@ nohup.out
 
 log/
 data/
+.aider*
