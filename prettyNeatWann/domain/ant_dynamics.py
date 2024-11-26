@@ -961,15 +961,14 @@ class AntDynamicsEnv(gym.Env):
         num_ants = len(trail_data.columns.levels[0])
         # If showing positions of other ants during the trail
         other_ants = None
-        if others:
-            if LOAD_ANTS:
-                other_ants = np.zeros(
-                    (num_ants - 1, trail_length, len(trail_data.columns.levels[1])),
-                    dtype=float
-                )
-            else:
-                # Empty list for now, can be populated with artificial ants later
-                other_ants = np.array([])
+        if others and LOAD_ANTS:
+            other_ants = np.zeros(
+                (num_ants - 1, trail_length, len(trail_data.columns.levels[1])),
+                dtype=float
+            )
+        else:
+            # No other ants when LOAD_ANTS is False
+            other_ants = None
 
         start = self.np_random.integers(len(trail_data) - trail_length)
         indices = list(self.np_random.permutation(num_ants))
