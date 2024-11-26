@@ -51,7 +51,7 @@ VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
 DRAW_ANT_VISION = True
 DRAW_PHEROMONES = False
-MULTIPLE_ANTS = True  # Whether to include other ants in the simulation
+OBSERVE_OTHERS = True  # Whether to include other ants in the simulation
 LOAD_ANTS = False     # Whether to load real ant data or use empty list
 
 vision_segments = [
@@ -991,7 +991,7 @@ class AntDynamicsEnv(gym.Env):
                 target[0:trail_length] = trail_data[ant_index][start:start + trail_length]
                 contains_null = False
                 indices_set.discard(ant_index)
-        if others and not contains_null:
+        if other_ants is not None and not contains_null:
             trail_index = 0
             for other_ant_index in indices_set:
                 if np.isnan(np.array(trail_data[other_ant_index][start:start + trail_length])).any():
@@ -1285,7 +1285,7 @@ class AntDynamicsEnv(gym.Env):
             self.target_trail, self.target_angles, self.target_distances, \
                 self.other_ants, self.other_ants_angles = \
                     self._select_target(
-                        others=MULTIPLE_ANTS,
+                        others=OBSERVE_OTHERS,
                         trail_len=TIME_LIMIT
                     )
 
