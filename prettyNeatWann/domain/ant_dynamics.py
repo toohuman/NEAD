@@ -53,6 +53,7 @@ DRAW_ANT_VISION = True
 DRAW_PHEROMONES = False
 OBSERVE_OTHERS = True  # Whether to include other ants in the simulation
 LOAD_ANTS = False     # Whether to load real ant data or use empty list
+LOAD_PHEROMONES = False  # Whether to load pheromone data or calculate in real-time
 
 vision_segments = [
     # Front arc: Directly in front of the agent
@@ -924,8 +925,18 @@ class AntDynamicsEnv(gym.Env):
         if not type(self).ant_trail_data:
             self._get_ant_trails()
 
-        # Load pheromone time series (consider using memmap if large)
-        if not type(self).pheromone_data:
+        # Initialize pheromone tracking
+        self.pheromone_grid = np.zeros((50, 50), dtype=np.float32)
+        self.pheromone_decay_rate = 0.01
+        self.pheromone_deposition_rate = 0.1
+        self.bounding_box_coarse = max(1, math.ceil(5 / (SCREEN_W / 50)))
+        half_box = self.bounding_box_coarse // 2
+        self.relative_indices = [(dy, dx) 
+                               for dy in range(-half_box, half_box + 1)
+                               for dx in range(-half_box, half_box + 1)]
+
+        # Load pheromone time series if needed
+        if LOAD_PHEROMONES and not type(self).pheromone_data:
             type(self).pheromone_data = load_pheromone_time_series_hdf5(
                 os.path.join(DATA_DIRECTORY, "pheromone_time_series_discrete.h5")
             )
@@ -1095,6 +1106,38 @@ class AntDynamicsEnv(gym.Env):
         return overlapping_cells
 
 
+    def _update_pheromone_grid(self):
+        """Update pheromone grid based on current ant positions"""
+        # Apply decay
+        self.pheromone_grid *= (1.0 - self.pheromone_decay_rate)
+
+        # Get all ant positions
+        ant_positions = [(self.ant.pos.x, self.ant.pos.y)]
+        if self.other_ants is not None:
+            ant_positions.extend([(x, y) for x, y in self.other_ants[:, self.t]])
+
+        # Update grid for each ant
+        coarse_width, coarse_height = 50, 50  # Coarse grid size
+        factor_x = SCREEN_W / coarse_width
+        factor_y = SCREEN_H / coarse_height
+
+        for x_fine, y_fine in ant_positions:
+            if np.isnan(x_fine) or np.isnan(y_fine):
+                continue
+                
+            x_coarse = int(x_fine // factor_x)
+            y_coarse = int(y_fine // factor_y)
+            
+            if x_coarse < 0 or x_coarse >= coarse_width or y_coarse < 0 or y_coarse >= coarse_height:
+                continue
+                
+            # Apply deposition in bounding box
+            for dy, dx in self.relative_indices:
+                x = x_coarse + dx
+                y = y_coarse + dy
+                if 0 <= x < coarse_width and 0 <= y < coarse_height:
+                    self.pheromone_grid[y, x] += self.pheromone_deposition_rate
+
     def _get_average_pheromone_vectorized(
         self,
         pos: tuple,
@@ -1114,10 +1157,6 @@ class AntDynamicsEnv(gym.Env):
         - average_pheromone (float)
         """
         
-        # Validate snapshot index
-        if snapshot_index < 0 or snapshot_index >= self.pheromone_data.shape[0]:
-            raise IndexError(f"Snapshot index {snapshot_index} is out of bounds for pheromone_time_series with {self.pheromone_data.shape[0]} snapshots.")
-        
         # Identify overlapping grid cells
         overlapping_cells = self._identify_overlapping_grid_cells(
             pos=pos,
@@ -1134,9 +1173,14 @@ class AntDynamicsEnv(gym.Env):
         # Convert list of tuples to separate row and column arrays
         rows, cols = zip(*overlapping_cells)  # Unzips the list of tuples
         
-        # Retrieve pheromone intensities using NumPy's advanced indexing
-        pheromone_values = self.pheromone_data[snapshot_index, rows, cols]
-        
+        # Retrieve pheromone intensities
+        if LOAD_PHEROMONES:
+            if snapshot_index < 0 or snapshot_index >= self.pheromone_data.shape[0]:
+                return overlapping_cells, 0.0
+            pheromone_values = self.pheromone_data[snapshot_index, rows, cols]
+        else:
+            pheromone_values = self.pheromone_grid[rows, cols]
+
         # Compute average pheromone intensity
         average_pheromone = np.mean(pheromone_values) if pheromone_values.size > 0 else 0.0
         
@@ -1420,6 +1464,10 @@ class AntDynamicsEnv(gym.Env):
         # self.ant.set_action(auto_action, movement_info['distance'], self.target_angles[self.t][1])
         self.ant.update()
 
+        # Update pheromone grid if not loading from file
+        if not LOAD_PHEROMONES:
+            self._update_pheromone_grid()
+
         # Get observations of other ants in the arena
         obs = self.get_observations(self.other_ants[:, self.t])
         self._track_trail(self.ant.pos)
@@ -1481,15 +1529,18 @@ class AntDynamicsEnv(gym.Env):
 
         if DRAW_PHEROMONES:
             # ---- Begin Pheromone Visualization ----
-            # Calculate the adjusted snapshot index based on time_offset
-            adjusted_time = self.t + self.time_offset
-            snapshot_index = (adjusted_time // self.frames_per_snapshot)
+            if LOAD_PHEROMONES:
+                # Calculate the adjusted snapshot index based on time_offset
+                adjusted_time = self.t + self.time_offset
+                snapshot_index = (adjusted_time // self.frames_per_snapshot)
 
-            # Ensure the snapshot index is within bounds
-            max_snapshot_index = type(self).pheromone_data.shape[0] - 1
-            snapshot_index = min(snapshot_index, max_snapshot_index)
+                # Ensure the snapshot index is within bounds
+                max_snapshot_index = type(self).pheromone_data.shape[0] - 1
+                snapshot_index = min(snapshot_index, max_snapshot_index)
 
-            pheromone_map = type(self).pheromone_data[snapshot_index]
+                pheromone_map = type(self).pheromone_data[snapshot_index]
+            else:
+                pheromone_map = self.pheromone_grid
 
             # Normalize and convert to 8-bit grayscale
             pheromone_map_scaled = (pheromone_map * 255).astype(np.uint8)
