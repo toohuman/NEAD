@@ -1018,7 +1018,8 @@ class AntDynamicsEnv(gym.Env):
         return  start,\
             Ant(target[0,0:2], target[0,3]),\
             target[:,0:2], target[:,2:4], target[:,4:6] if "smoothed" in FILE_SUFFIX else None,\
-            other_ants[:,:,0:2], other_ants[:,:,2:4]
+            None if other_ants is None else other_ants[:,:,0:2], 
+            None if other_ants is None else other_ants[:,:,2:4]
 
 
     def _get_interval_data(self, trail, start_time, interval=False):
