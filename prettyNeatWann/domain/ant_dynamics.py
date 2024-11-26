@@ -1018,7 +1018,7 @@ class AntDynamicsEnv(gym.Env):
         return  start,\
             Ant(target[0,0:2], target[0,3]),\
             target[:,0:2], target[:,2:4], target[:,4:6] if "smoothed" in FILE_SUFFIX else None,\
-            None if other_ants is None else other_ants[:,:,0:2], 
+            None if other_ants is None else other_ants[:,:,0:2],\
             None if other_ants is None else other_ants[:,:,2:4]
 
 
