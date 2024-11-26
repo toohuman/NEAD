@@ -52,7 +52,7 @@ VISION_RANGE = 100  # No idea what is a reasonable value for this.
 DRAW_ANT_VISION = True
 DRAW_PHEROMONES = False
 MULTIPLE_ANTS = True  # Whether to include other ants in the simulation
-LOAD_ANTS = True     # Whether to load real ant data or use empty list
+LOAD_ANTS = False     # Whether to load real ant data or use empty list
 
 vision_segments = [
     # Front arc: Directly in front of the agent
