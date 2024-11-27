@@ -37,15 +37,16 @@ def smooth_and_round(df, sigma=2, threshold=0.5):
             # Apply Gaussian smoothing
             smoothed_values = gaussian_filter1d(df[col], sigma=sigma)
             
-            # Round to nearest integer and handle NaN values
-            rounded_values = np.round(smoothed_values)
-            rounded_values = np.nan_to_num(rounded_values, nan=0)
+            # Keep NaN values and round only non-NaN values
+            mask = np.isnan(smoothed_values)
+            rounded_values = np.copy(smoothed_values)
+            rounded_values[~mask] = np.round(smoothed_values[~mask])
             
             # Calculate the difference (optional, currently not used for conditional logic)
             diff = np.abs(smoothed_values - rounded_values)
             
-            # Assign rounded values back
-            smoothed_df[col] = rounded_values.astype(int)
+            # Assign rounded values back, preserving NaN
+            smoothed_df[col] = rounded_values
     return smoothed_df
 
 def apply_kalman_filter(df, entity, delta_t=0.1):
