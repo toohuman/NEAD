@@ -45,24 +45,53 @@ def smooth_trajectories(df, sigma=1.0):
                 x_smoothed = gaussian_filter(x_valid, sigma=sigma)
                 y_smoothed = gaussian_filter(y_valid, sigma=sigma)
                 
+                # Round to nearest pixel coordinates
+                x_smoothed = np.round(x_smoothed)
+                y_smoothed = np.round(y_smoothed)
+                
                 # Put smoothed values back
                 smoothed_df.loc[mask['x'], (ant, 'x')] = x_smoothed
                 smoothed_df.loc[mask['y'], (ant, 'y')] = y_smoothed
     
     return smoothed_df
 
+def quantize_to_pixels(df):
+    """
+    Ensure all coordinates are properly quantized to pixel positions.
+    Args:
+        df: DataFrame with ant positions
+    Returns:
+        DataFrame with pixel-quantized positions
+    """
+    quantized_df = df.copy()
+    ant_numbers = df.columns.get_level_values(0).unique()
+    
+    for ant in ant_numbers:
+        # Round all non-NaN values to nearest integer
+        mask = ~df[ant].isna()
+        quantized_df.loc[mask[['x']], (ant, 'x')] = np.round(df.loc[mask[['x']], (ant, 'x')])
+        quantized_df.loc[mask[['y']], (ant, 'y')] = np.round(df.loc[mask[['y']], (ant, 'y')])
+    
+    return quantized_df
+
 
 
 # Load and clean the data
 data = load_data(DATA_DIRECTORY, INPUT_FILE)
 
-# Apply smoothing
+# Apply smoothing and quantization
 smoothed_data = smooth_trajectories(data, sigma=1.0)
+pixel_data = quantize_to_pixels(smoothed_data)
 
 print("Original data:")
 print(data.head())
-print("\nSmoothed data:")
-print(smoothed_data.head())
+print("\nSmoothed and quantized data:")
+print(pixel_data.head())
+
+# Calculate and print the difference to see the effect
+print("\nMean absolute difference from original:")
+diff = (data - pixel_data).abs().mean()
+print(diff)
 
 
 # Example output
