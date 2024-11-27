@@ -17,47 +17,6 @@ def load_data(source_dir, input_file, scale = None, arena_dim = None):
         data = pd.read_pickle(file)
     return data.iloc[::int(scale)] if scale else data
 
-def handle_missing_data(df, max_gap_seconds=0.5, fps=60):
-    """
-    Handle missing data in ant trajectories using linear interpolation for small gaps.
-    Args:
-        df: DataFrame with ant positions (MultiIndex columns with ant number and x,y coordinates)
-        max_gap_seconds: Maximum gap in seconds to interpolate across
-        fps: Frames per second of the recording
-    Returns:
-        Cleaned DataFrame with interpolated values
-    """
-    max_gap = int(max_gap_seconds * fps)  # Convert seconds to frames
-    cleaned_df = df.copy()
-    total_gaps = 0
-    total_fixed = 0
-    
-    # Get unique ant numbers from first level of MultiIndex
-    ant_numbers = df.columns.get_level_values(0).unique()
-    
-    for ant in ant_numbers:
-        # Get x,y coordinates for this ant
-        ant_data = df[ant]
-        initial_nans = ant_data.isna().sum().sum()
-        
-        if initial_nans > 0:
-            # First try simple interpolation for small gaps
-            cleaned_df[ant] = ant_data.interpolate(method='linear', limit=max_gap)
-            
-            # Check remaining gaps
-            remaining_nans = cleaned_df[ant].isna().sum().sum()
-            gaps_fixed = initial_nans - remaining_nans
-            
-            total_gaps += initial_nans
-            total_fixed += gaps_fixed
-            
-            print(f"Ant {ant}: {initial_nans} NaNs, fixed {gaps_fixed}, remaining {remaining_nans}")
-    
-    print(f"\nTotal gaps: {total_gaps}")
-    print(f"Total fixed: {total_fixed}")
-    print(f"Success rate: {(total_fixed/total_gaps*100):.1f}% of NaNs interpolated")
-    
-    return cleaned_df
 
 # Load and clean the data
 data = load_data(DATA_DIRECTORY, INPUT_FILE)
@@ -84,17 +43,10 @@ print(data[0].head())
 # 4  180.0  224.0
 
 
-# Print diagnostics about NaN values
-print(f"NaN values before cleaning: {data.isna().sum().sum()}")
-data = handle_missing_data(data)
-print(f"NaN values after cleaning: {data.isna().sum().sum()}")
-
-# Print sample of cleaned data
-print("\nSample of cleaned data:")
-print(data.head())
 
 
 
+# --------------------------------------
 # Explanation:
 #
 # The first part of this file loads a dataset of positional information of individual ants (x, y coordinates
