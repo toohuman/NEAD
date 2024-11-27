@@ -87,40 +87,58 @@ def apply_kalman_filter(df, entity, delta_t=0.1):
     
     return x_smoothed, y_smoothed
 
-def limit_step_size(x, y, max_step=5):                                                             
-    """                                                                                            
-    Limit the step size between consecutive positions to prevent large jumps.                      
-    """                                                                                            
-    # Convert inputs to numpy arrays and ensure they're 1D                                         
-    x = np.asarray(x).flatten()                                                                    
-    y = np.asarray(y).flatten()                                                                    
-                                                                                                
-    x_limited = []                                                                                 
-    y_limited = []                                                                                 
-                                                                                                
-    # Initialize with first point                                                                  
-    x_limited.append(float(x[0]))                                                                  
-    y_limited.append(float(y[0]))                                                                  
-                                                                                                
-    for i in range(1, len(x)):                                                                     
-        dx = float(x[i]) - x_limited[-1]                                                           
-        dy = float(y[i]) - y_limited[-1]                                                           
-        distance = np.sqrt(dx**2 + dy**2)                                                          
-                                                                                                
-        if distance > max_step:                                                                    
-            scale = max_step / distance                                                            
-            dx = dx * scale                                                                        
-            dy = dy * scale                                                                        
-            new_x = x_limited[-1] + dx                                                             
-            new_y = y_limited[-1] + dy                                                             
-            x_limited.append(float(new_x))                                                         
-            y_limited.append(float(new_y))                                                         
-        else:                                                                                      
-            x_limited.append(float(x[i]))                                                          
-            y_limited.append(float(y[i]))                                                          
-                                                                                                
-    # Convert to numpy arrays after all elements are added                                         
-    return np.array(x_limited, dtype=float), np.array(y_limited, dtype=float)    
+def limit_step_size(x, y, max_step=5):
+    """
+    Limit the step size between consecutive positions to prevent large jumps.
+    Preserves NaN values in the output.
+    """
+    # Convert inputs to numpy arrays and ensure they're 1D
+    x = np.asarray(x).flatten()
+    y = np.asarray(y).flatten()
+    
+    x_limited = np.full_like(x, np.nan)
+    y_limited = np.full_like(y, np.nan)
+    
+    # Find first non-NaN point
+    valid_mask = ~(np.isnan(x) | np.isnan(y))
+    if not np.any(valid_mask):
+        return x_limited, y_limited
+        
+    # Process points
+    last_valid_x = None
+    last_valid_y = None
+    
+    for i in range(len(x)):
+        if np.isnan(x[i]) or np.isnan(y[i]):
+            continue
+            
+        if last_valid_x is None:
+            x_limited[i] = x[i]
+            y_limited[i] = y[i]
+            last_valid_x = x[i]
+            last_valid_y = y[i]
+            continue
+            
+        dx = x[i] - last_valid_x
+        dy = y[i] - last_valid_y
+        distance = np.sqrt(dx**2 + dy**2)
+        
+        if distance > max_step:
+            scale = max_step / distance
+            dx = dx * scale
+            dy = dy * scale
+            new_x = last_valid_x + dx
+            new_y = last_valid_y + dy
+            x_limited[i] = new_x
+            y_limited[i] = new_y
+        else:
+            x_limited[i] = x[i]
+            y_limited[i] = y[i]
+            
+        last_valid_x = x_limited[i]
+        last_valid_y = y_limited[i]
+    
+    return x_limited, y_limited
 
 def smooth_entity(df, entity, delta_t=0.1, max_step=5):
     """
