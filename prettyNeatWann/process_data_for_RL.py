@@ -63,14 +63,6 @@ def handle_missing_data(df, max_gap_seconds=0.5, fps=60):
 
 # Load and clean the data
 data = load_data(DATA_DIRECTORY, INPUT_FILE)
-
-# Print diagnostics about NaN values
-print(f"NaN values before cleaning: {data.isna().sum().sum()}")
-data = handle_missing_data(data)
-print(f"NaN values after cleaning: {data.isna().sum().sum()}")
-
-# Print sample of cleaned data
-print("\nSample of cleaned data:")
 print(data.head())
 # Output:
 # ----------
@@ -92,6 +84,18 @@ print(data[0].head())
 # 2  180.0  225.0
 # 3  180.0  224.0
 # 4  180.0  224.0
+
+
+# Print diagnostics about NaN values
+print(f"NaN values before cleaning: {data.isna().sum().sum()}")
+data = handle_missing_data(data)
+print(f"NaN values after cleaning: {data.isna().sum().sum()}")
+
+# Print sample of cleaned data
+print("\nSample of cleaned data:")
+print(data.head())
+
+
 
 # Explanation:
 #
