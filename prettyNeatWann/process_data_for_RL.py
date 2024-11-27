@@ -2,8 +2,9 @@ import sys, math
 from collections import namedtuple
 import numpy as np
 import pandas as pd
-from scipy.ndimage import gaussian_filter
-import random
+from filterpy.kalman import KalmanFilter
+from scipy.ndimage import gaussian_filter1d
+import matplotlib.pyplot as plt  # Corrected import
 import lzma
 import os
 from tqdm import tqdm
@@ -11,120 +12,209 @@ from tqdm import tqdm
 DATA_DIRECTORY = "data/2023_2/"
 INPUT_FILE = 'KA050_processed_10cm_5h_20230614.pkl.xz'
 
-def load_data(source_dir, input_file, scale = None, arena_dim = None):
+def load_data(source_dir, input_file, scale=None, arena_dim=None):
+    """Load data from a compressed pickle file."""
     data = None
     with lzma.open(os.path.join(source_dir, input_file)) as file:
         data = pd.read_pickle(file)
     return data.iloc[::int(scale)] if scale else data
 
-
-def smooth_trajectories(df, sigma=1.0):
+def smooth_and_round(df, sigma=2, threshold=0.5):
     """
-    Smooth ant trajectories using Gaussian filter while preserving NaN values.
-    Args:
-        df: DataFrame with ant positions (MultiIndex columns with ant number and x,y coordinates)
-        sigma: Standard deviation for Gaussian kernel (higher = more smoothing)
+    Apply Gaussian smoothing to 'x' and 'y' columns and round them to integers.
+    
+    Parameters:
+    - df: pandas DataFrame with MultiIndex columns (entity, 'x'/'y')
+    - sigma: Standard deviation for Gaussian kernel
+    - threshold: Threshold for rounding (currently not used for conditional rounding)
+    
     Returns:
-        DataFrame with smoothed trajectories
+    - smoothed_df: DataFrame with smoothed and rounded 'x' and 'y' columns
     """
     smoothed_df = df.copy()
-    ant_numbers = df.columns.get_level_values(0).unique()
-    
-    for ant in ant_numbers:
-        # Get x,y coordinates for this ant
-        ant_data = df[ant]
-        
-        # Only smooth non-NaN values
-        mask = ~ant_data.isna()
-        if mask.any().any():  # Only process if there's valid data
-            x_valid = ant_data['x'][mask['x']].values
-            y_valid = ant_data['y'][mask['y']].values
+    for col in df.columns:
+        if col[1] in ['x', 'y']:
+            # Apply Gaussian smoothing
+            smoothed_values = gaussian_filter1d(df[col], sigma=sigma)
             
-            if len(x_valid) > 0:
-                # Smooth valid values
-                x_smoothed = gaussian_filter(x_valid, sigma=sigma)
-                y_smoothed = gaussian_filter(y_valid, sigma=sigma)
-                
-                # Round to nearest pixel coordinates
-                x_smoothed = np.round(x_smoothed)
-                y_smoothed = np.round(y_smoothed)
-                
-                # Put smoothed values back
-                smoothed_df.loc[mask['x'], (ant, 'x')] = x_smoothed
-                smoothed_df.loc[mask['y'], (ant, 'y')] = y_smoothed
-    
+            # Round to nearest integer
+            rounded_values = np.round(smoothed_values)
+            
+            # Calculate the difference (optional, currently not used for conditional logic)
+            diff = np.abs(smoothed_values - rounded_values)
+            
+            # Assign rounded values back
+            smoothed_df[col] = rounded_values.astype(int)
     return smoothed_df
 
-def quantize_to_pixels(df):
+def apply_kalman_filter(df, entity, delta_t=0.1):
     """
-    Ensure all coordinates are properly quantized to pixel positions.
-    Args:
-        df: DataFrame with ant positions
+    Apply a Kalman Filter to smooth 'x' and 'y' positions for a given entity.
+    
+    Parameters:
+    - df: pandas DataFrame with MultiIndex columns (entity, 'x'/'y')
+    - entity: Entity ID (e.g., 0, 1, 2, ...)
+    - delta_t: Time step interval
+    
     Returns:
-        DataFrame with pixel-quantized positions
+    - x_smoothed: Numpy array of smoothed 'x' positions
+    - y_smoothed: Numpy array of smoothed 'y' positions
     """
-    quantized_df = df.copy()
-    ant_numbers = df.columns.get_level_values(0).unique()
+    kf = KalmanFilter(dim_x=4, dim_z=2)
+    kf.F = np.array([[1, 0, delta_t, 0],
+                     [0, 1, 0, delta_t],
+                     [0, 0, 1, 0],
+                     [0, 0, 0, 1]])
+    kf.H = np.array([[1, 0, 0, 0],
+                     [0, 1, 0, 0]])
+    kf.R = np.eye(2) * 5
+    kf.P *= 1000.
+    kf.Q = np.eye(4)
     
-    for ant in ant_numbers:
-        # Get x,y coordinates for this ant
-        ant_data = df[ant]
-        
-        # Create separate masks for x and y
-        x_mask = ~ant_data['x'].isna()
-        y_mask = ~ant_data['y'].isna()
-        
-        # Round x and y coordinates separately
-        quantized_df.loc[x_mask, (ant, 'x')] = np.round(df.loc[x_mask, (ant, 'x')])
-        quantized_df.loc[y_mask, (ant, 'y')] = np.round(df.loc[y_mask, (ant, 'y')])
+    measurements = df[(entity, 'x')].values, df[(entity, 'y')].values
+    measurements = np.column_stack(measurements)
     
-    return quantized_df
+    smoothed_positions = []
+    for z in measurements:
+        kf.predict()
+        kf.update(z)
+        smoothed_positions.append((kf.x[0], kf.x[1]))
+    
+    x_smoothed = np.array([pos[0] for pos in smoothed_positions])
+    y_smoothed = np.array([pos[1] for pos in smoothed_positions])
+    
+    return x_smoothed, y_smoothed
 
+def limit_step_size(x, y, max_step=5):
+    """
+    Limit the step size between consecutive positions to prevent large jumps.
+    
+    Parameters:
+    - x: Numpy array of 'x' positions
+    - y: Numpy array of 'y' positions
+    - max_step: Maximum allowed step size
+    
+    Returns:
+    - x_limited: Numpy array of 'x' positions with limited steps
+    - y_limited: Numpy array of 'y' positions with limited steps
+    """
+    x_limited = [x[0]]
+    y_limited = [y[0]]
+    for i in range(1, len(x)):
+        dx = x[i] - x_limited[-1]
+        dy = y[i] - y_limited[-1]
+        distance = np.sqrt(dx**2 + dy**2)
+        if distance > max_step:
+            scale = max_step / distance
+            dx = dx * scale
+            dy = dy * scale
+            new_x = x_limited[-1] + dx
+            new_y = y_limited[-1] + dy
+            x_limited.append(int(np.round(new_x)))
+            y_limited.append(int(np.round(new_y)))
+        else:
+            x_limited.append(int(np.round(x[i])))
+            y_limited.append(int(np.round(y[i])))
+    return np.array(x_limited), np.array(y_limited)
 
+def smooth_entity(df, entity, delta_t=0.1, max_step=5):
+    """
+    Apply Kalman Filter and step size limiting to smooth and round positions for an entity.
+    
+    Parameters:
+    - df: pandas DataFrame with MultiIndex columns (entity, 'x'/'y')
+    - entity: Entity ID
+    - delta_t: Time step interval
+    - max_step: Maximum allowed step size
+    
+    Returns:
+    - x_limited: Numpy array of smoothed and rounded 'x' positions
+    - y_limited: Numpy array of smoothed and rounded 'y' positions
+    """
+    x_kf, y_kf = apply_kalman_filter(df, entity, delta_t)
+    x_limited, y_limited = limit_step_size(x_kf, y_kf, max_step)
+    return x_limited, y_limited
 
-# Load and clean the data
+def calculate_mean_absolute_difference(original_df, processed_df, entities):
+    """
+    Calculate the mean absolute difference between original and processed DataFrames.
+    
+    Parameters:
+    - original_df: Original pandas DataFrame with MultiIndex columns (entity, 'x'/'y')
+    - processed_df: Processed pandas DataFrame with MultiIndex columns (entity, 'x'/'y')
+    - entities: List of entity IDs
+    
+    Returns:
+    - mean_absolute_diff: pandas Series with mean absolute difference per column
+    - overall_mean_absolute_diff: Float representing overall mean absolute difference
+    """
+    columns_to_compare = []
+    for entity in entities:
+        columns_to_compare.extend([
+            (entity, 'x'),
+            (entity, 'y')
+        ])
+
+    original_positions = original_df[columns_to_compare]
+    processed_positions = processed_df[columns_to_compare]
+
+    # Ensure numeric types
+    original_positions = original_positions.apply(pd.to_numeric, errors='coerce')
+    processed_positions = processed_positions.apply(pd.to_numeric, errors='coerce')
+
+    # Handle NaNs by filling with 0 (or choose another method if appropriate)
+    difference = (original_positions - processed_positions).abs().fillna(0)
+
+    # Compute mean absolute difference per column
+    mean_absolute_diff = difference.mean()
+    
+    # Compute overall mean absolute difference
+    overall_mean_absolute_diff = mean_absolute_diff.mean()
+    
+    return mean_absolute_diff, overall_mean_absolute_diff
+
+# ----------------------------
+# Main Processing Workflow
+# ----------------------------
+
+# Step 1: Load and clean the data
 data = load_data(DATA_DIRECTORY, INPUT_FILE)
 
-# Apply smoothing and quantization
-smoothed_data = smooth_trajectories(data, sigma=1.0)
-pixel_data = quantize_to_pixels(smoothed_data)
+# Step 2: Apply smoothing and quantization
+smoothed_data = smooth_and_round(data)
 
 print("Original data:")
 print(data.head())
-print("\nSmoothed and quantized data:")
-print(pixel_data.head())
+print("\nSmoothed data:")
+print(smoothed_data.head())
 
-# Calculate and print the difference to see the effect
-print("\nMean absolute difference from original:")
-diff = (data - pixel_data).abs().mean()
-print(diff)
+# Step 3: Initialize smoothed_and_rounded_data
+smoothed_and_rounded_data = smoothed_data.copy()
 
+# Step 4: Apply smoothing and rounding to all entities
+entities = data.columns.levels[0]  # Assuming first level is entity ID
 
-# Example output
-# -----------------
-# print(data.head())
-# Output:
-# ----------
-#       0             1             2             3          ...  53      54      55      56    
-#        x      y      x      y      x      y      x      y  ...   x   y   x   y   x   y   x   y
-# 0  180.0  225.0  339.0  591.0  326.0  614.0  308.0  750.0  ... NaN NaN NaN NaN NaN NaN NaN NaN
-# 1  180.0  225.0  340.0  592.0  325.0  614.0  308.0  750.0  ... NaN NaN NaN NaN NaN NaN NaN NaN
-# 2  180.0  225.0  340.0  592.0  325.0  614.0  308.0  749.0  ... NaN NaN NaN NaN NaN NaN NaN NaN
-# 3  180.0  224.0  340.0  592.0  324.0  614.0  308.0  749.0  ... NaN NaN NaN NaN NaN NaN NaN NaN
-# 4  180.0  224.0  340.0  592.0  324.0  614.0  308.0  749.0  ... NaN NaN NaN NaN NaN NaN NaN NaN
-# print(data[0].head())
-# Output:
-# ----------
-# [5 rows x 114 columns]
-#        x      y
-# 0  180.0  225.0
-# 1  180.0  225.0
-# 2  180.0  225.0
-# 3  180.0  224.0
-# 4  180.0  224.0
+for entity in tqdm(entities, desc='Smoothing Entities'):
+    x_smoothed, y_smoothed = smooth_entity(smoothed_and_rounded_data, entity, delta_t=0.1, max_step=5)
+    smoothed_and_rounded_data[(entity, 'x')] = x_smoothed
+    smoothed_and_rounded_data[(entity, 'y')] = y_smoothed
 
+# Step 5: Calculate Mean Absolute Difference
+mean_diff_per_column, overall_mean_diff = calculate_mean_absolute_difference(data, smoothed_and_rounded_data, entities)
+print("\nMean Absolute Difference per Column:")
+print(mean_diff_per_column)
+print(f"\nOverall Mean Absolute Difference: {overall_mean_diff:.2f} pixels")
 
-
+# Step 6: Example Visualization for Entity 0
+entity = 0
+plt.figure(figsize=(10, 8))
+plt.plot(smoothed_data[(entity, 'x')], smoothed_data[(entity, 'y')], label='Original Smoothed', alpha=0.5)
+plt.plot(smoothed_and_rounded_data[(entity, 'x')], smoothed_and_rounded_data[(entity, 'y')], label='Smoothed & Rounded', alpha=0.8)
+plt.xlabel('X Position')
+plt.ylabel('Y Position')
+plt.title(f'Smoothed and Rounded Trajectory for Entity {entity}')
+plt.legend()
+plt.show()
 
 
 # --------------------------------------
@@ -163,3 +253,25 @@ print(diff)
 # data['x_smooth'] = gaussian_filter1d(data['x'], sigma=2)
 # data['y_smooth'] = gaussian_filter1d(data['y'], sigma=2)
 
+# Raw Dataset, prior to any processing (notice the multi-indexed columns)
+# -----------------
+# print(data.head())
+# Output:
+# ----------
+#       0             1             2             3          ...  53      54      55      56    
+#        x      y      x      y      x      y      x      y  ...   x   y   x   y   x   y   x   y
+# 0  180.0  225.0  339.0  591.0  326.0  614.0  308.0  750.0  ... NaN NaN NaN NaN NaN NaN NaN NaN
+# 1  180.0  225.0  340.0  592.0  325.0  614.0  308.0  750.0  ... NaN NaN NaN NaN NaN NaN NaN NaN
+# 2  180.0  225.0  340.0  592.0  325.0  614.0  308.0  749.0  ... NaN NaN NaN NaN NaN NaN NaN NaN
+# 3  180.0  224.0  340.0  592.0  324.0  614.0  308.0  749.0  ... NaN NaN NaN NaN NaN NaN NaN NaN
+# 4  180.0  224.0  340.0  592.0  324.0  614.0  308.0  749.0  ... NaN NaN NaN NaN NaN NaN NaN NaN
+# print(data[0].head())
+# Output:
+# ----------
+# [5 rows x 114 columns]
+#        x      y
+# 0  180.0  225.0
+# 1  180.0  225.0
+# 2  180.0  225.0
+# 3  180.0  224.0
+# 4  180.0  224.0
