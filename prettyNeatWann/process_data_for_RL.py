@@ -17,8 +17,56 @@ def load_data(source_dir, input_file, scale = None, arena_dim = None):
         data = pd.read_pickle(file)
     return data.iloc[::int(scale)] if scale else data
 
-data = load_data(DATA_DIRECTORY, INPUT_FILE)
+def handle_missing_data(df, max_gap_seconds=0.5, fps=60):
+    """
+    Handle missing data in ant trajectories.
+    Args:
+        df: DataFrame with ant positions
+        max_gap_seconds: Maximum gap in seconds to interpolate across
+        fps: Frames per second of the recording
+    Returns:
+        Cleaned DataFrame with interpolated values
+    """
+    max_gap = int(max_gap_seconds * fps)  # Convert seconds to frames
+    cleaned_df = df.copy()
+    
+    # Get columns for each ant (pairs of x,y coordinates)
+    ant_columns = [(i, f'{i}.1') for i in range(0, df.shape[1], 2)]
+    
+    for x_col, y_col in ant_columns:
+        # Only process if there are any NaN values
+        if df[[x_col, y_col]].isna().any().any():
+            # Get mask of NaN values
+            mask = df[[x_col, y_col]].isna().any(axis=1)
+            gap_starts = np.where(mask[1:] & ~mask[:-1])[0] + 1
+            gap_ends = np.where(~mask[1:] & mask[:-1])[0] + 1
+            
+            if len(gap_starts) > 0 and len(gap_ends) > 0:
+                # Handle case where first frame is NaN
+                if mask[0]:
+                    gap_starts = np.insert(gap_starts, 0, 0)
+                # Handle case where last frame is NaN
+                if mask.iloc[-1]:
+                    gap_ends = np.append(gap_ends, len(mask))
+                
+                for start, end in zip(gap_starts, gap_ends):
+                    gap_length = end - start
+                    if gap_length <= max_gap:
+                        # Interpolate if gap is small enough
+                        cleaned_df.loc[start:end-1, [x_col, y_col]] = \
+                            df.loc[start:end-1, [x_col, y_col]].interpolate(method='linear')
+                    else:
+                        # Set to NaN if gap is too large
+                        cleaned_df.loc[start:end-1, [x_col, y_col]] = np.nan
 
+    return cleaned_df
+
+# Load and clean the data
+data = load_data(DATA_DIRECTORY, INPUT_FILE)
+data = handle_missing_data(data)
+
+# Print sample of cleaned data
+print("Sample of cleaned data:")
 print(data.head())
 # Output:
 # ----------
