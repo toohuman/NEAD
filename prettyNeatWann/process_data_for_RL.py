@@ -21,7 +21,7 @@ def handle_missing_data(df, max_gap_seconds=0.5, fps=60):
     """
     Handle missing data in ant trajectories.
     Args:
-        df: DataFrame with ant positions
+        df: DataFrame with ant positions (MultiIndex columns with ant number and x,y coordinates)
         max_gap_seconds: Maximum gap in seconds to interpolate across
         fps: Frames per second of the recording
     Returns:
@@ -30,20 +30,23 @@ def handle_missing_data(df, max_gap_seconds=0.5, fps=60):
     max_gap = int(max_gap_seconds * fps)  # Convert seconds to frames
     cleaned_df = df.copy()
     
-    # Get columns for each ant (pairs of x,y coordinates)
-    ant_columns = [(i, f'{i}.1') for i in range(0, df.shape[1], 2)]
+    # Get unique ant numbers from first level of MultiIndex
+    ant_numbers = df.columns.get_level_values(0).unique()
     
-    for x_col, y_col in ant_columns:
+    for ant in ant_numbers:
+        # Get x,y coordinates for this ant
+        ant_data = df[ant]
+        
         # Only process if there are any NaN values
-        if df[[x_col, y_col]].isna().any().any():
-            # Get mask of NaN values
-            mask = df[[x_col, y_col]].isna().any(axis=1)
-            gap_starts = np.where(mask[1:] & ~mask[:-1])[0] + 1
-            gap_ends = np.where(~mask[1:] & mask[:-1])[0] + 1
+        if ant_data.isna().any().any():
+            # Get mask of NaN values (True where either x or y is NaN)
+            mask = ant_data.isna().any(axis=1)
+            gap_starts = np.where(mask[1:].values & ~mask[:-1].values)[0] + 1
+            gap_ends = np.where(~mask[1:].values & mask[:-1].values)[0] + 1
             
             if len(gap_starts) > 0 and len(gap_ends) > 0:
                 # Handle case where first frame is NaN
-                if mask[0]:
+                if mask.iloc[0]:
                     gap_starts = np.insert(gap_starts, 0, 0)
                 # Handle case where last frame is NaN
                 if mask.iloc[-1]:
@@ -53,11 +56,11 @@ def handle_missing_data(df, max_gap_seconds=0.5, fps=60):
                     gap_length = end - start
                     if gap_length <= max_gap:
                         # Interpolate if gap is small enough
-                        cleaned_df.loc[start:end-1, [x_col, y_col]] = \
-                            df.loc[start:end-1, [x_col, y_col]].interpolate(method='linear')
+                        cleaned_df.loc[start:end-1, ant] = \
+                            df.loc[start:end-1, ant].interpolate(method='linear')
                     else:
                         # Set to NaN if gap is too large
-                        cleaned_df.loc[start:end-1, [x_col, y_col]] = np.nan
+                        cleaned_df.loc[start:end-1, ant] = np.nan
 
     return cleaned_df
 
