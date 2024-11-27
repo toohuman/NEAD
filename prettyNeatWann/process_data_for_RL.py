@@ -37,8 +37,9 @@ def smooth_and_round(df, sigma=2, threshold=0.5):
             # Apply Gaussian smoothing
             smoothed_values = gaussian_filter1d(df[col], sigma=sigma)
             
-            # Round to nearest integer
+            # Round to nearest integer and handle NaN values
             rounded_values = np.round(smoothed_values)
+            rounded_values = np.nan_to_num(rounded_values, nan=0)
             
             # Calculate the difference (optional, currently not used for conditional logic)
             diff = np.abs(smoothed_values - rounded_values)
@@ -110,11 +111,11 @@ def limit_step_size(x, y, max_step=5):
             dy = dy * scale
             new_x = x_limited[-1] + dx
             new_y = y_limited[-1] + dy
-            x_limited.append(int(np.round(new_x)))
-            y_limited.append(int(np.round(new_y)))
+            x_limited.append(int(float(np.round(new_x))))
+            y_limited.append(int(float(np.round(new_y))))
         else:
-            x_limited.append(int(np.round(x[i])))
-            y_limited.append(int(np.round(y[i])))
+            x_limited.append(int(float(np.round(x[i]))))
+            y_limited.append(int(float(np.round(y[i]))))
     return np.array(x_limited), np.array(y_limited)
 
 def smooth_entity(df, entity, delta_t=0.1, max_step=5):
