@@ -11,6 +11,39 @@ from tqdm import tqdm
 DATA_DIRECTORY = "data/2023_2/"
 INPUT_FILE = 'KA050_processed_10cm_5h_20230614.pkl.xz'
 
+def smooth_trajectories(df, sigma=1.0):
+    """
+    Smooth ant trajectories using Gaussian filter while preserving NaN values.
+    Args:
+        df: DataFrame with ant positions (MultiIndex columns with ant number and x,y coordinates)
+        sigma: Standard deviation for Gaussian kernel (higher = more smoothing)
+    Returns:
+        DataFrame with smoothed trajectories
+    """
+    smoothed_df = df.copy()
+    ant_numbers = df.columns.get_level_values(0).unique()
+    
+    for ant in ant_numbers:
+        # Get x,y coordinates for this ant
+        ant_data = df[ant]
+        
+        # Only smooth non-NaN values
+        mask = ~ant_data.isna()
+        if mask.any().any():  # Only process if there's valid data
+            x_valid = ant_data['x'][mask['x']].values
+            y_valid = ant_data['y'][mask['y']].values
+            
+            if len(x_valid) > 0:
+                # Smooth valid values
+                x_smoothed = gaussian_filter(x_valid, sigma=sigma)
+                y_smoothed = gaussian_filter(y_valid, sigma=sigma)
+                
+                # Put smoothed values back
+                smoothed_df.loc[mask['x'], (ant, 'x')] = x_smoothed
+                smoothed_df.loc[mask['y'], (ant, 'y')] = y_smoothed
+    
+    return smoothed_df
+
 def load_data(source_dir, input_file, scale = None, arena_dim = None):
     data = None
     with lzma.open(os.path.join(source_dir, input_file)) as file:
@@ -20,7 +53,14 @@ def load_data(source_dir, input_file, scale = None, arena_dim = None):
 
 # Load and clean the data
 data = load_data(DATA_DIRECTORY, INPUT_FILE)
+
+# Apply smoothing
+smoothed_data = smooth_trajectories(data, sigma=1.0)
+
+print("Original data:")
 print(data.head())
+print("\nSmoothed data:")
+print(smoothed_data.head())
 # Output:
 # ----------
 #       0             1             2             3          ...  53      54      55      56    
