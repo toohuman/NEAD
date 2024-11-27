@@ -11,6 +11,13 @@ from tqdm import tqdm
 DATA_DIRECTORY = "data/2023_2/"
 INPUT_FILE = 'KA050_processed_10cm_5h_20230614.pkl.xz'
 
+def load_data(source_dir, input_file, scale = None, arena_dim = None):
+    data = None
+    with lzma.open(os.path.join(source_dir, input_file)) as file:
+        data = pd.read_pickle(file)
+    return data.iloc[::int(scale)] if scale else data
+
+
 def smooth_trajectories(df, sigma=1.0):
     """
     Smooth ant trajectories using Gaussian filter while preserving NaN values.
@@ -44,11 +51,6 @@ def smooth_trajectories(df, sigma=1.0):
     
     return smoothed_df
 
-def load_data(source_dir, input_file, scale = None, arena_dim = None):
-    data = None
-    with lzma.open(os.path.join(source_dir, input_file)) as file:
-        data = pd.read_pickle(file)
-    return data.iloc[::int(scale)] if scale else data
 
 
 # Load and clean the data
@@ -61,6 +63,11 @@ print("Original data:")
 print(data.head())
 print("\nSmoothed data:")
 print(smoothed_data.head())
+
+
+# Example output
+# -----------------
+# print(data.head())
 # Output:
 # ----------
 #       0             1             2             3          ...  53      54      55      56    
@@ -70,8 +77,7 @@ print(smoothed_data.head())
 # 2  180.0  225.0  340.0  592.0  325.0  614.0  308.0  749.0  ... NaN NaN NaN NaN NaN NaN NaN NaN
 # 3  180.0  224.0  340.0  592.0  324.0  614.0  308.0  749.0  ... NaN NaN NaN NaN NaN NaN NaN NaN
 # 4  180.0  224.0  340.0  592.0  324.0  614.0  308.0  749.0  ... NaN NaN NaN NaN NaN NaN NaN NaN
-
-print(data[0].head())
+# print(data[0].head())
 # Output:
 # ----------
 # [5 rows x 114 columns]
