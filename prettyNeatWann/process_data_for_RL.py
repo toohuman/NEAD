@@ -86,37 +86,40 @@ def apply_kalman_filter(df, entity, delta_t=0.1):
     
     return x_smoothed, y_smoothed
 
-def limit_step_size(x, y, max_step=5):
-    """
-    Limit the step size between consecutive positions to prevent large jumps.
-    
-    Parameters:
-    - x: Numpy array of 'x' positions
-    - y: Numpy array of 'y' positions
-    - max_step: Maximum allowed step size
-    
-    Returns:
-    - x_limited: Numpy array of 'x' positions with limited steps
-    - y_limited: Numpy array of 'y' positions with limited steps
-    """
-    x_limited = [x[0]]
-    y_limited = [y[0]]
-    for i in range(1, len(x)):
-        dx = x[i] - x_limited[-1]
-        dy = y[i] - y_limited[-1]
-        distance = np.sqrt(dx**2 + dy**2)
-        if distance > max_step:
-            scale = max_step / distance
-            dx = dx * scale
-            dy = dy * scale
-            new_x = x_limited[-1] + dx
-            new_y = y_limited[-1] + dy
-            x_limited.append(int(float(np.round(new_x))))
-            y_limited.append(int(float(np.round(new_y))))
-        else:
-            x_limited.append(int(float(np.round(x[i]))))
-            y_limited.append(int(float(np.round(y[i]))))
-    return np.array(x_limited), np.array(y_limited)
+def limit_step_size(x, y, max_step=5):                                                             
+    """                                                                                            
+    Limit the step size between consecutive positions to prevent large jumps.                      
+    """                                                                                            
+    # Convert inputs to numpy arrays and ensure they're 1D                                         
+    x = np.asarray(x).flatten()                                                                    
+    y = np.asarray(y).flatten()                                                                    
+                                                                                                
+    x_limited = []                                                                                 
+    y_limited = []                                                                                 
+                                                                                                
+    # Initialize with first point                                                                  
+    x_limited.append(float(x[0]))                                                                  
+    y_limited.append(float(y[0]))                                                                  
+                                                                                                
+    for i in range(1, len(x)):                                                                     
+        dx = float(x[i]) - x_limited[-1]                                                           
+        dy = float(y[i]) - y_limited[-1]                                                           
+        distance = np.sqrt(dx**2 + dy**2)                                                          
+                                                                                                
+        if distance > max_step:                                                                    
+            scale = max_step / distance                                                            
+            dx = dx * scale                                                                        
+            dy = dy * scale                                                                        
+            new_x = x_limited[-1] + dx                                                             
+            new_y = y_limited[-1] + dy                                                             
+            x_limited.append(float(new_x))                                                         
+            y_limited.append(float(new_y))                                                         
+        else:                                                                                      
+            x_limited.append(float(x[i]))                                                          
+            y_limited.append(float(y[i]))                                                          
+                                                                                                
+    # Convert to numpy arrays after all elements are added                                         
+    return np.array(x_limited, dtype=float), np.array(y_limited, dtype=float)    
 
 def smooth_entity(df, entity, delta_t=0.1, max_step=5):
     """
