@@ -19,7 +19,7 @@ def load_data(source_dir, input_file, scale = None, arena_dim = None):
 
 def handle_missing_data(df, max_gap_seconds=0.5, fps=60):
     """
-    Handle missing data in ant trajectories.
+    Handle missing data in ant trajectories using linear interpolation for small gaps.
     Args:
         df: DataFrame with ant positions (MultiIndex columns with ant number and x,y coordinates)
         max_gap_seconds: Maximum gap in seconds to interpolate across
@@ -29,6 +29,8 @@ def handle_missing_data(df, max_gap_seconds=0.5, fps=60):
     """
     max_gap = int(max_gap_seconds * fps)  # Convert seconds to frames
     cleaned_df = df.copy()
+    total_gaps = 0
+    total_fixed = 0
     
     # Get unique ant numbers from first level of MultiIndex
     ant_numbers = df.columns.get_level_values(0).unique()
@@ -36,32 +38,25 @@ def handle_missing_data(df, max_gap_seconds=0.5, fps=60):
     for ant in ant_numbers:
         # Get x,y coordinates for this ant
         ant_data = df[ant]
+        initial_nans = ant_data.isna().sum().sum()
         
-        # Only process if there are any NaN values
-        if ant_data.isna().any().any():
-            # Get mask of NaN values (True where either x or y is NaN)
-            mask = ant_data.isna().any(axis=1)
-            gap_starts = np.where(mask[1:].values & ~mask[:-1].values)[0] + 1
-            gap_ends = np.where(~mask[1:].values & mask[:-1].values)[0] + 1
+        if initial_nans > 0:
+            # First try simple interpolation for small gaps
+            cleaned_df[ant] = ant_data.interpolate(method='linear', limit=max_gap)
             
-            if len(gap_starts) > 0 and len(gap_ends) > 0:
-                # Handle case where first frame is NaN
-                if mask.iloc[0]:
-                    gap_starts = np.insert(gap_starts, 0, 0)
-                # Handle case where last frame is NaN
-                if mask.iloc[-1]:
-                    gap_ends = np.append(gap_ends, len(mask))
-                
-                for start, end in zip(gap_starts, gap_ends):
-                    gap_length = end - start
-                    if gap_length <= max_gap:
-                        # Interpolate if gap is small enough
-                        cleaned_df.loc[start:end-1, ant] = \
-                            df.loc[start:end-1, ant].interpolate(method='linear')
-                    else:
-                        # Set to NaN if gap is too large
-                        cleaned_df.loc[start:end-1, ant] = np.nan
-
+            # Check remaining gaps
+            remaining_nans = cleaned_df[ant].isna().sum().sum()
+            gaps_fixed = initial_nans - remaining_nans
+            
+            total_gaps += initial_nans
+            total_fixed += gaps_fixed
+            
+            print(f"Ant {ant}: {initial_nans} NaNs, fixed {gaps_fixed}, remaining {remaining_nans}")
+    
+    print(f"\nTotal gaps: {total_gaps}")
+    print(f"Total fixed: {total_fixed}")
+    print(f"Success rate: {(total_fixed/total_gaps*100):.1f}% of NaNs interpolated")
+    
     return cleaned_df
 
 # Load and clean the data
