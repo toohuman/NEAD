@@ -67,10 +67,16 @@ def quantize_to_pixels(df):
     ant_numbers = df.columns.get_level_values(0).unique()
     
     for ant in ant_numbers:
-        # Round all non-NaN values to nearest integer
-        mask = ~df[ant].isna()
-        quantized_df.loc[mask[['x']], (ant, 'x')] = np.round(df.loc[mask[['x']], (ant, 'x')])
-        quantized_df.loc[mask[['y']], (ant, 'y')] = np.round(df.loc[mask[['y']], (ant, 'y')])
+        # Get x,y coordinates for this ant
+        ant_data = df[ant]
+        
+        # Create separate masks for x and y
+        x_mask = ~ant_data['x'].isna()
+        y_mask = ~ant_data['y'].isna()
+        
+        # Round x and y coordinates separately
+        quantized_df.loc[x_mask, (ant, 'x')] = np.round(df.loc[x_mask, (ant, 'x')])
+        quantized_df.loc[y_mask, (ant, 'y')] = np.round(df.loc[y_mask, (ant, 'y')])
     
     return quantized_df
 
