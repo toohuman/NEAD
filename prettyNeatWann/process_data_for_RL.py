@@ -109,7 +109,7 @@ def apply_kalman_filter(df, entity, delta_t=0.1, measurement_noise=5.0, process_
                 state = (kf.x[0], kf.x[1])
             else:
                 # Skip update if no valid previous state
-                continue
+                state = (np.nan, np.nan)
         else:
             kf.predict()
             kf.update(z)
@@ -117,7 +117,6 @@ def apply_kalman_filter(df, entity, delta_t=0.1, measurement_noise=5.0, process_
             last_valid_state = state
             
             # Store state information
-            states['positions'].append((kf.x[0], kf.x[1]))
             states['velocities'].append((kf.x[2], kf.x[3]))
             states['uncertainties'].append(np.diag(kf.P))
             states['measurement_residuals'].append(kf.y)
