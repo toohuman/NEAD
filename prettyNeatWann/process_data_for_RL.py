@@ -49,7 +49,7 @@ def smooth_and_round(df, sigma=2, threshold=0.5):
             smoothed_df[col] = rounded_values
     return smoothed_df
 
-def apply_kalman_filter(df, entity, delta_t=0.1):
+def apply_kalman_filter(df, entity, delta_t=0.1, measurement_noise=5.0, process_noise=0.1):
     """
     Apply a Kalman Filter to smooth 'x' and 'y' positions for a given entity.
     
@@ -57,35 +57,77 @@ def apply_kalman_filter(df, entity, delta_t=0.1):
     - df: pandas DataFrame with MultiIndex columns (entity, 'x'/'y')
     - entity: Entity ID (e.g., 0, 1, 2, ...)
     - delta_t: Time step interval
+    - measurement_noise: Measurement noise parameter (R)
+    - process_noise: Process noise parameter (Q)
     
     Returns:
     - x_smoothed: Numpy array of smoothed 'x' positions
     - y_smoothed: Numpy array of smoothed 'y' positions
+    - states: Dictionary containing filter states for analysis
     """
     kf = KalmanFilter(dim_x=4, dim_z=2)
+    
+    # State transition matrix
     kf.F = np.array([[1, 0, delta_t, 0],
                      [0, 1, 0, delta_t],
                      [0, 0, 1, 0],
                      [0, 0, 0, 1]])
+    
+    # Measurement matrix
     kf.H = np.array([[1, 0, 0, 0],
                      [0, 1, 0, 0]])
-    kf.R = np.eye(2) * 5
+    
+    # Measurement noise
+    kf.R = np.eye(2) * measurement_noise
+    
+    # Initial state covariance
     kf.P *= 1000.
-    kf.Q = np.eye(4)
+    
+    # Process noise - tuned for ant motion
+    kf.Q = np.eye(4) * process_noise
+    kf.Q[2:, 2:] *= 10  # Higher noise for velocity components
     
     measurements = df[(entity, 'x')].values, df[(entity, 'y')].values
     measurements = np.column_stack(measurements)
     
-    smoothed_positions = []
+    # Store all states for analysis
+    states = {
+        'positions': [],
+        'velocities': [],
+        'uncertainties': [],
+        'measurement_residuals': []
+    }
+    
+    last_valid_state = None
+    
     for z in measurements:
-        kf.predict()
-        kf.update(z)
-        smoothed_positions.append((kf.x[0], kf.x[1]))
+        # Handle missing measurements (NaN values)
+        if np.any(np.isnan(z)):
+            if last_valid_state is not None:
+                # Only predict if we have a valid previous state
+                kf.predict()
+                state = (kf.x[0], kf.x[1])
+            else:
+                # Skip update if no valid previous state
+                continue
+        else:
+            kf.predict()
+            kf.update(z)
+            state = (kf.x[0], kf.x[1])
+            last_valid_state = state
+            
+            # Store state information
+            states['positions'].append((kf.x[0], kf.x[1]))
+            states['velocities'].append((kf.x[2], kf.x[3]))
+            states['uncertainties'].append(np.diag(kf.P))
+            states['measurement_residuals'].append(kf.y)
+        
+        states['positions'].append(state)
     
-    x_smoothed = np.array([pos[0] for pos in smoothed_positions])
-    y_smoothed = np.array([pos[1] for pos in smoothed_positions])
+    x_smoothed = np.array([pos[0] for pos in states['positions']])
+    y_smoothed = np.array([pos[1] for pos in states['positions']])
     
-    return x_smoothed, y_smoothed
+    return x_smoothed, y_smoothed, states
 
 def limit_step_size(x, y, max_step=5):
     """
@@ -140,7 +182,7 @@ def limit_step_size(x, y, max_step=5):
     
     return x_limited, y_limited
 
-def smooth_entity(df, entity, delta_t=0.1, max_step=5):
+def smooth_entity(df, entity, delta_t=0.1, max_step=5, measurement_noise=5.0, process_noise=0.1):
     """
     Apply Kalman Filter and step size limiting to smooth and round positions for an entity.
     
@@ -149,14 +191,21 @@ def smooth_entity(df, entity, delta_t=0.1, max_step=5):
     - entity: Entity ID
     - delta_t: Time step interval
     - max_step: Maximum allowed step size
+    - measurement_noise: Measurement noise parameter for Kalman filter
+    - process_noise: Process noise parameter for Kalman filter
     
     Returns:
     - x_limited: Numpy array of smoothed and rounded 'x' positions
     - y_limited: Numpy array of smoothed and rounded 'y' positions
+    - filter_states: Dictionary containing Kalman filter states for analysis
     """
-    x_kf, y_kf = apply_kalman_filter(df, entity, delta_t)
+    x_kf, y_kf, filter_states = apply_kalman_filter(
+        df, entity, delta_t, 
+        measurement_noise=measurement_noise,
+        process_noise=process_noise
+    )
     x_limited, y_limited = limit_step_size(x_kf, y_kf, max_step)
-    return x_limited, y_limited
+    return x_limited, y_limited, filter_states
 
 def calculate_mean_absolute_difference(original_df, processed_df, entities):
     """
@@ -216,11 +265,31 @@ smoothed_and_rounded_data = smoothed_data.copy()
 
 # Step 4: Apply smoothing and rounding to all entities
 entities = data.columns.levels[0]  # Assuming first level is entity ID
+filter_states_by_entity = {}
 
 for entity in tqdm(entities, desc='Smoothing Entities'):
-    x_smoothed, y_smoothed = smooth_entity(smoothed_and_rounded_data, entity, delta_t=0.1, max_step=5)
+    x_smoothed, y_smoothed, filter_states = smooth_entity(
+        smoothed_and_rounded_data, 
+        entity, 
+        delta_t=0.1, 
+        max_step=5,
+        measurement_noise=5.0,  # Tune these parameters based on your data
+        process_noise=0.1
+    )
     smoothed_and_rounded_data[(entity, 'x')] = x_smoothed
     smoothed_and_rounded_data[(entity, 'y')] = y_smoothed
+    filter_states_by_entity[entity] = filter_states
+
+# Optional: Analyze Kalman filter performance
+print("\nAnalyzing Kalman Filter Performance:")
+for entity in entities:
+    states = filter_states_by_entity[entity]
+    if states['velocities']:  # Check if we have data
+        mean_velocity = np.mean(states['velocities'], axis=0)
+        mean_uncertainty = np.mean(states['uncertainties'], axis=0)
+        print(f"\nEntity {entity}:")
+        print(f"Mean velocity (x,y): ({mean_velocity[0]:.2f}, {mean_velocity[1]:.2f})")
+        print(f"Mean position uncertainty: {mean_uncertainty[0]:.2f}, {mean_uncertainty[1]:.2f}")
 
 # Step 5: Calculate Mean Absolute Difference
 mean_diff_per_column, overall_mean_diff = calculate_mean_absolute_difference(data, smoothed_and_rounded_data, entities)
