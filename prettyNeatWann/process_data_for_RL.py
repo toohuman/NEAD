@@ -123,8 +123,10 @@ def apply_kalman_filter(df, entity, delta_t=0.1, measurement_noise=5.0, process_
         
         states['positions'].append(state)
     
-    x_smoothed = np.array([pos[0] for pos in states['positions']])
-    y_smoothed = np.array([pos[1] for pos in states['positions']])
+    # Convert positions to numpy arrays, handling NaN values consistently
+    positions = np.array(states['positions'])
+    x_smoothed = positions[:, 0]  # First column for x
+    y_smoothed = positions[:, 1]  # Second column for y
     
     return x_smoothed, y_smoothed, states
 
