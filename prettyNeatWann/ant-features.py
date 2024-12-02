@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 from dataclasses import dataclass
+from tqdm import tqdm
 from typing import Dict, List, Tuple, Optional
 import numpy.typing as npt
 import lzma
@@ -197,7 +198,7 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, any]]:
     results = {}
     ant_ids = data.columns.levels[0]
     
-    for ant_id in ant_ids:
+    for ant_id in tqdm(ant_ids, desc="Processing ants"):
         # Extract trajectory features
         x = data[ant_id, 'x'].values
         y = data[ant_id, 'y'].values
