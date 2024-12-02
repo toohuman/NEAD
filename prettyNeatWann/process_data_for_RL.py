@@ -291,8 +291,8 @@ for entity in entities:
         mean_velocity = np.mean(states['velocities'], axis=0)
         mean_uncertainty = np.mean(states['uncertainties'], axis=0)
         print(f"\nEntity {entity}:")
-        print(f"Mean velocity (x,y): ({mean_velocity[0]:.2f}, {mean_velocity[1]:.2f})")
-        print(f"Mean position uncertainty: {mean_uncertainty[0]:.2f}, {mean_uncertainty[1]:.2f}")
+        print(f"Mean velocity (x,y): ({float(mean_velocity[0]):.2f}, {float(mean_velocity[1]):.2f})")
+        print(f"Mean position uncertainty: {float(mean_uncertainty[0]):.2f}, {float(mean_uncertainty[1]):.2f}")
 
 # Step 5: Calculate Mean Absolute Difference
 mean_diff_per_column, overall_mean_diff = calculate_mean_absolute_difference(data, smoothed_and_rounded_data, entities)
