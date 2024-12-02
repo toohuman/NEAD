@@ -124,9 +124,16 @@ def apply_kalman_filter(df, entity, delta_t=0.1, measurement_noise=5.0, process_
         states['positions'].append(state)
     
     # Convert to array while explicitly handling NaN values
-    positions = np.array([(float(p[0]) if p[0] is not None else np.nan,
-                          float(p[1]) if p[1] is not None else np.nan)
-                         for p in states['positions']], dtype=float)
+    positions = []
+    for p in states['positions']:
+        if isinstance(p[0], np.ndarray):
+            x = float(p[0].item()) if p[0] is not None else np.nan
+            y = float(p[1].item()) if p[1] is not None else np.nan
+        else:
+            x = float(p[0]) if p[0] is not None else np.nan
+            y = float(p[1]) if p[1] is not None else np.nan
+        positions.append((x, y))
+    positions = np.array(positions, dtype=float)
     x_smoothed = positions[:, 0]
     y_smoothed = positions[:, 1]
     
