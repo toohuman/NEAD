@@ -275,9 +275,10 @@ smoothed_and_rounded_data = smoothed_data.copy()
 
 # Step 4: Apply smoothing and rounding to all entities
 entities = data.columns.levels[0]  # Assuming first level is entity ID
+total_entities = len(entities)
 filter_states_by_entity = {}
 
-for entity in tqdm(entities, desc='Smoothing Entities'):
+for entity_idx, entity in enumerate(tqdm(entities, desc='Smoothing Entities', position=0)):
     x_smoothed, y_smoothed, filter_states = smooth_entity(
         smoothed_and_rounded_data, 
         entity, 

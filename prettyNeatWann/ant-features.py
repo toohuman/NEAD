@@ -210,9 +210,9 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, any]]:
         
         traj_features = feature_extractor.extract_features(x, y)
         
-        # Extract social features for each timestep
+        # Extract social features for each timestep with progress bar
         social_features = []
-        for t in range(len(x)):
+        for t in tqdm(range(len(x)), desc=f"Processing timesteps for ant {ant_id}", leave=False):
             if np.isnan(x[t]) or np.isnan(y[t]):
                 continue
                 
