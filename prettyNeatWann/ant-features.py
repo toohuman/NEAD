@@ -248,5 +248,20 @@ data = load_data(DATA_DIRECTORY, INPUT_FILE)
 print("Original data:")
 print(data.head())
 
-data = process_ant_data(data)
-data.head()
+# Process the data
+processed_data = process_ant_data(data)
+
+# Print summary of processed data
+print("\nProcessed data summary:")
+print(f"Number of ants processed: {len(processed_data)}")
+
+# Print example features for first ant
+first_ant_id = list(processed_data.keys())[0]
+first_ant_data = processed_data[first_ant_id]
+
+print(f"\nExample features for ant {first_ant_id}:")
+print("Trajectory features:")
+print(f"- Number of move segments: {len(first_ant_data['trajectory_features'].move_segments)}")
+print(f"- Number of stop segments: {len(first_ant_data['trajectory_features'].stop_segments)}")
+print(f"- Average move duration: {np.mean(first_ant_data['trajectory_features'].bout_durations['move']):.2f} seconds")
+print(f"- Number of social interaction records: {len(first_ant_data['social_features'])}")
