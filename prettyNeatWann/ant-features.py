@@ -72,7 +72,12 @@ class AntFeatureExtractor:
         ddx = np.gradient(dx, self.dt)
         ddy = np.gradient(dy, self.dt)
         
-        curvature = np.abs(dx * ddy - dy * ddx) / (dx * dx + dy * dy) ** 1.5
+        # Avoid division by zero in curvature calculation
+        denominator = (dx * dx + dy * dy) ** 1.5
+        curvature = np.zeros_like(dx)
+        valid_denom = denominator > 1e-10  # Threshold for numerical stability
+        curvature[valid_denom] = np.abs(dx[valid_denom] * ddy[valid_denom] - 
+                                      dy[valid_denom] * ddx[valid_denom]) / denominator[valid_denom]
         return curvature
     
     def identify_movement_bouts(self, velocity_mag: np.ndarray) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]:
@@ -211,15 +216,16 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, any]]:
             if np.isnan(x[t]) or np.isnan(y[t]):
                 continue
                 
-            # Get positions of other ants at this timestep
-            other_x = np.array([data[other_id, 'x'].iloc[t] 
-                              for other_id in ant_ids if other_id != ant_id])
-            other_y = np.array([data[other_id, 'y'].iloc[t] 
-                              for other_id in ant_ids if other_id != ant_id])
+            # Get positions of other ants at this timestep more efficiently
+            other_positions = data.loc[t].drop((ant_id, 'x')).drop((ant_id, 'y')).values.reshape(-1, 2)
+            other_x = other_positions[:, 0]
+            other_y = other_positions[:, 1]
             
             # Remove NaN values
             valid = ~(np.isnan(other_x) | np.isnan(other_y))
-            other_x, other_y = other_x[valid], other_y[valid]
+            if np.any(valid):  # Only process if we have valid neighbors
+                other_x = other_x[valid]
+                other_y = other_y[valid]
             
             if len(other_x) > 0:
                 densities = social_extractor.compute_local_density(x[t], y[t], other_x, other_y)
