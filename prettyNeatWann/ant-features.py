@@ -308,54 +308,46 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
         positions[i, :, 0] = data[ant_id, 'x'].values
         positions[i, :, 1] = data[ant_id, 'y'].values
     
-    for i, ant_id in tqdm(enumerate(ant_ids), desc="Processing ants"):
+    for i, ant_id in (enumerate(ant_ids), desc="Processing ants"):
         # Extract trajectory features
         traj_features = feature_extractor.extract_features(
             positions[i, :, 0],
             positions[i, :, 1]
         )
         
-        # Pre-allocate social features list with known size
+        # Process all social features at once instead of chunking
         social_features = []
         
-        # Process social features in chunks for memory efficiency
-        chunk_size = 1000
-        for t in tqdm(range(0, n_timesteps, chunk_size), 
-                     desc=f"Processing timesteps for ant {ant_id}", 
-                     leave=False):
-            chunk_end = min(t + chunk_size, n_timesteps)
-            chunk_positions = positions[:, t:chunk_end, :]
+        for t in tqdm(range(n_timesteps), desc=f"Processing timesteps for ant {ant_id}", leave=False):
+            if np.isnan(positions[i, t, 0]):
+                continue
             
-            for pos_idx in range(chunk_end - t):
-                if np.isnan(chunk_positions[i, pos_idx, 0]):
-                    continue
-                
-                # Get other ants' positions efficiently
-                other_positions = np.delete(chunk_positions[:, pos_idx, :], i, axis=0)
-                valid_mask = ~np.isnan(other_positions).any(axis=1)
-                if not np.any(valid_mask):
-                    continue
-                
-                other_positions = other_positions[valid_mask]
-                
-                densities = social_extractor.compute_local_density(
-                    chunk_positions[i, pos_idx, 0],
-                    chunk_positions[i, pos_idx, 1],
-                    other_positions[:, 0],
-                    other_positions[:, 1]
-                )
-                
-                nn_stats = social_extractor.compute_nearest_neighbor_stats(
-                    chunk_positions[i, pos_idx, 0],
-                    chunk_positions[i, pos_idx, 1],
-                    other_positions[:, 0],
-                    other_positions[:, 1]
-                )
-                
-                social_features.append({
-                    'densities': densities,
-                    'nn_stats': nn_stats
-                })
+            # Get other ants' positions efficiently
+            other_positions = np.delete(positions[:, t, :], i, axis=0)
+            valid_mask = ~np.isnan(other_positions).any(axis=1)
+            if not np.any(valid_mask):
+                continue
+            
+            other_positions = other_positions[valid_mask]
+            
+            densities = social_extractor.compute_local_density(
+                positions[i, t, 0],
+                positions[i, t, 1],
+                other_positions[:, 0],
+                other_positions[:, 1]
+            )
+            
+            nn_stats = social_extractor.compute_nearest_neighbor_stats(
+                positions[i, t, 0],
+                positions[i, t, 1],
+                other_positions[:, 0],
+                other_positions[:, 1]
+            )
+            
+            social_features.append({
+                'densities': densities,
+                'nn_stats': nn_stats
+            })
         
         results[ant_id] = {
             'trajectory_features': traj_features,
@@ -367,28 +359,108 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
 # Example usage:
 if __name__ == "__main__":
     # Load and process original data
+    print("Loading data...")
     data = load_data(DATA_DIRECTORY, INPUT_FILE)
+    
+    # Basic data validation
+    print("\nInitial data validation:")
+    print(f"Number of timesteps: {len(data)}")
+    print(f"Number of ants: {len(data.columns.levels[0])}")
+    print(f"Data shape: {data.shape}")
+    
+    # Process data and time the execution
+    print("\nProcessing ant data...")
+    import time
+    start_time = time.time()
     processed_data = process_ant_data(data)
+    processing_time = time.time() - start_time
+    print(f"Processing completed in {processing_time:.2f} seconds")
+    
+    # Validate processed data structure
+    print("\nValidating processed data structure:")
+    first_ant = list(processed_data.keys())[0]
+    features = processed_data[first_ant]['trajectory_features']
+    
+    print("\nFeature shapes:")
+    print(f"Velocities: {features.velocities.shape}")
+    print(f"Accelerations: {features.accelerations.shape}")
+    print(f"Angular velocities: {features.angular_velocities.shape}")
+    print(f"Curvatures: {features.curvatures.shape}")
+    
+    # Validate movement segmentation
+    print("\nMovement segmentation validation:")
+    print(f"Number of move segments: {len(features.move_segments)}")
+    print(f"Number of stop segments: {len(features.stop_segments)}")
+    print(f"Total move duration: {sum(features.bout_durations['move']):.2f} seconds")
+    print(f"Total stop duration: {sum(features.bout_durations['stop']):.2f} seconds")
+    
+    # Validate social features
+    print("\nSocial features validation:")
+    social_features = processed_data[first_ant]['social_features']
+    print(f"Number of social feature timestamps: {len(social_features)}")
+    if social_features:
+        print(f"Number of density sectors: {len(social_features[0]['densities'])}")
+        print(f"Available nearest neighbor stats: {list(social_features[0]['nn_stats'].keys())}")
+    
+    # Basic sanity checks
+    print("\nPerforming sanity checks:")
+    
+    # Check for NaN values
+    velocities = features.velocities
+    nan_count = np.isnan(velocities).sum()
+    print(f"NaN values in velocities: {nan_count}")
+    
+    # Check for reasonable velocity ranges
+    max_velocity = np.max(np.linalg.norm(velocities, axis=1))
+    mean_velocity = np.mean(np.linalg.norm(velocities, axis=1))
+    print(f"Maximum velocity: {max_velocity:.2f} units/second")
+    print(f"Mean velocity: {mean_velocity:.2f} units/second")
+    
+    # Verify segment continuity
+    move_segments = features.move_segments
+    if move_segments:
+        segments_ordered = all(seg[0] < seg[1] for seg in move_segments)
+        segments_continuous = all(move_segments[i][1] <= move_segments[i+1][0] 
+                                for i in range(len(move_segments)-1))
+        print(f"Move segments properly ordered: {segments_ordered}")
+        print(f"Move segments continuous: {segments_continuous}")
     
     # Save processed data in chunks
+    print("\nSaving processed data...")
+    save_start_time = time.time()
     output_directory = DATA_DIRECTORY
     base_filename = "ant_features"
     save_processed_data_chunked(processed_data, output_directory, base_filename)
+    save_time = time.time() - save_start_time
+    print(f"Data saved in {save_time:.2f} seconds")
     
-    # Test loading some data
+    # Test loading the saved data
     print("\nTesting data loading...")
-    # Load just kinematic features for first ant
-    first_ant = list(processed_data.keys())[0]
+    load_start_time = time.time()
     loaded_data = load_processed_data_chunked(
         os.path.join(output_directory, 'processed_data'),
-        ant_ids=[first_ant],
-        feature_types=['kinematic']
+        ant_ids=[first_ant]
     )
+    load_time = time.time() - load_start_time
+    print(f"Data loaded in {load_time:.2f} seconds")
     
-    # Verify the data
-    print(f"\nVerifying loaded data for ant {first_ant}:")
+    # Verify loaded data matches original
+    print("\nVerifying loaded data integrity:")
     original_features = processed_data[first_ant]['trajectory_features']
     loaded_features = loaded_data[first_ant]['trajectory_features']
     
-    print(f"Original number of velocities: {len(original_features.velocities)}")
-    print(f"Loaded number of velocities: {len(loaded_features.velocities)}")
+    velocities_match = np.allclose(
+        original_features.velocities, 
+        loaded_features.velocities,
+        equal_nan=True
+    )
+    segments_match = (original_features.move_segments == loaded_features.move_segments)
+    
+    print(f"Velocities match: {velocities_match}")
+    print(f"Movement segments match: {segments_match}")
+    
+    # Memory usage statistics
+    import psutil
+    process = psutil.Process()
+    memory_usage = process.memory_info().rss / 1024 / 1024  # Convert to MB
+    print(f"\nCurrent memory usage: {memory_usage:.2f} MB")
