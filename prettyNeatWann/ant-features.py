@@ -21,55 +21,68 @@ def load_data(source_dir, input_file, scale=None, arena_dim=None):
     return data.iloc[::int(scale)] if scale else data
 
 
-def save_processed_data(data: Dict[int, Dict[str, Any]], 
-                       output_dir: str,
-                       filename: str,
-                       compress_level: int = 6) -> None:
+def save_processed_data_chunked(data: Dict[int, Dict[str, Any]], 
+                              output_dir: str,
+                              base_filename: str) -> None:
     """
-    Save processed ant behavioral data to a compressed file.
+    Save processed ant behavioural data as separate files by feature type.
     
-    Args:
-        data: Dictionary containing processed ant data
-        output_dir: Directory to save the file
-        filename: Name of the output file
-        compress_level: LZMA compression level (0-9, higher = better compression but slower)
+    Structure:
+    output_dir/processed_data/
+    ├── kinematic/
+    │   ├── velocities_ant_{id}.pkl.xz
+    │   ├── accelerations_ant_{id}.pkl.xz
+    │   ├── angular_velocities_ant_{id}.pkl.xz
+    │   └── curvatures_ant_{id}.pkl.xz
+    ├── behavioural/
+    │   ├── segments_ant_{id}.pkl.xz  (contains stop/move segments)
+    │   └── bout_durations_ant_{id}.pkl.xz
+    └── social/
+        └── social_features_ant_{id}.pkl.xz
     """
-    print("Starting data serialization...")
+    # Create directory structure
+    base_dir = os.path.join(output_dir, 'processed_data')
+    for subdir in ['kinematic', 'behavioural', 'social']:
+        Path(os.path.join(base_dir, subdir)).mkdir(parents=True, exist_ok=True)
     
-    # Create output directory if it doesn't exist
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    print("Saving data in chunks...")
     
-    # Convert TrajectoryFeatures objects to dictionaries for serialization
-    print("Converting data structures...")
-    serializable_data = {}
-    for ant_id, ant_data in tqdm(data.items(), desc="Preparing data"):
-        serializable_data[ant_id] = {
-            'trajectory_features': asdict(ant_data['trajectory_features']),
-            'social_features': ant_data['social_features']
+    # Process each ant separately
+    for ant_id, ant_data in tqdm(data.items(), desc="Processing ants"):
+        traj_features = ant_data['trajectory_features']
+        
+        # Save kinematic features
+        kinematic_features = {
+            'velocities': traj_features.velocities,
+            'accelerations': traj_features.accelerations,
+            'angular_velocities': traj_features.angular_velocities,
+            'curvatures': traj_features.curvatures
         }
-    
-    # Ensure filename has proper extension
-    if not filename.endswith('.pkl.xz'):
-        filename = f"{filename}.pkl.xz"
-    
-    output_path = os.path.join(output_dir, filename)
-    
-    # Save with compression
-    print(f"Saving compressed data to {output_path}")
-    print("This may take a while for large datasets...")
-    
-    try:
-        with lzma.open(output_path, 'wb', preset=compress_level) as f:
-            pickle.dump(serializable_data, f)
+        for feature_name, feature_data in kinematic_features.items():
+            filename = f"{feature_name}_ant_{ant_id}.pkl.xz"
+            filepath = os.path.join(base_dir, 'kinematic', filename)
+            with lzma.open(filepath, 'wb') as f:
+                pickle.dump(feature_data, f)
         
-        # Print file size information
-        file_size = os.path.getsize(output_path) / (1024 * 1024)  # Convert to MB
-        print(f"Data successfully saved!")
-        print(f"Compressed file size: {file_size:.2f} MB")
+        # Save behavioural features
+        behavioural_features = {
+            'segments': {
+                'stop_segments': traj_features.stop_segments,
+                'move_segments': traj_features.move_segments
+            },
+            'bout_durations': traj_features.bout_durations
+        }
+        for feature_name, feature_data in behavioural_features.items():
+            filename = f"{feature_name}_ant_{ant_id}.pkl.xz"
+            filepath = os.path.join(base_dir, 'behavioural', filename)
+            with lzma.open(filepath, 'wb') as f:
+                pickle.dump(feature_data, f)
         
-    except Exception as e:
-        print(f"Error saving data: {str(e)}")
-        raise
+        # Save social features
+        filename = f"social_features_ant_{ant_id}.pkl.xz"
+        filepath = os.path.join(base_dir, 'social', filename)
+        with lzma.open(filepath, 'wb') as f:
+            pickle.dump(ant_data['social_features'], f)
 
 def load_processed_data(filepath: str) -> Dict[int, Dict[str, Any]]:
     """
@@ -323,24 +336,25 @@ if __name__ == "__main__":
     data = load_data(DATA_DIRECTORY, INPUT_FILE)
     processed_data = process_ant_data(data)
     
-    # Save processed data
+    # Save processed data in chunks
     output_directory = DATA_DIRECTORY
-    output_filename = "ant_features_processed.pkl.xz"
-    save_processed_data(processed_data, output_directory, output_filename)
+    base_filename = "ant_features"
+    save_processed_data_chunked(processed_data, output_directory, base_filename)
     
-    # Test loading the saved data
-    loaded_data = load_processed_data(os.path.join(output_directory, output_filename))
+    # Test loading some data
+    print("\nTesting data loading...")
+    # Load just kinematic features for first ant
+    first_ant = list(processed_data.keys())[0]
+    loaded_data = load_processed_data_chunked(
+        os.path.join(output_directory, 'processed_data'),
+        ant_ids=[first_ant],
+        feature_types=['kinematic']
+    )
     
     # Verify the data
-    print("\nVerifying loaded data:")
-    print(f"Number of ants in original processed data: {len(processed_data)}")
-    print(f"Number of ants in loaded data: {len(loaded_data)}")
+    print(f"\nVerifying loaded data for ant {first_ant}:")
+    original_features = processed_data[first_ant]['trajectory_features']
+    loaded_features = loaded_data[first_ant]['trajectory_features']
     
-    # Compare some values
-    first_ant_id = list(processed_data.keys())[0]
-    original_features = processed_data[first_ant_id]['trajectory_features']
-    loaded_features = loaded_data[first_ant_id]['trajectory_features']
-    
-    print(f"\nComparing features for ant {first_ant_id}:")
-    print(f"Original number of move segments: {len(original_features.move_segments)}")
-    print(f"Loaded number of move segments: {len(loaded_features.move_segments)}")
+    print(f"Original number of velocities: {len(original_features.velocities)}")
+    print(f"Loaded number of velocities: {len(loaded_features.velocities)}")
