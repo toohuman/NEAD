@@ -120,16 +120,18 @@ class TrajectoryFeatures:
 class AntFeatureExtractor:
     """Extract behavioral features from ant trajectory data using vectorized operations."""
     
-    def __init__(self, fps: float = 60.0, velocity_threshold: float = 0.5):
+    def __init__(self, fps: float = 60.0, velocity_threshold: float = 0.5, max_position_change: float = 100.0):
         """
         Initialize the feature extractor.
         
         Args:
             fps: Frame rate of the data
             velocity_threshold: Threshold for determining stop/move states (units/second)
+            max_position_change: Maximum allowable position change between consecutive frames (units)
         """
         self.dt = 1.0 / fps
         self.velocity_threshold = velocity_threshold
+        self.max_position_change = max_position_change
     
     def extract_features(self, x: np.ndarray, y: np.ndarray) -> TrajectoryFeatures:
         """
@@ -142,6 +144,42 @@ class AntFeatureExtractor:
         Returns:
             TrajectoryFeatures object containing all computed features
         """
+        # Find valid positions (not NaN)
+        valid = ~(np.isnan(x) | np.isnan(y))
+        x, y = x[valid], y[valid]
+        n_points = len(x)
+        
+        # Calculate position changes between consecutive frames
+        dx = np.diff(x)
+        dy = np.diff(y)
+        position_changes = np.sqrt(dx**2 + dy**2)
+        
+        # Identify large jumps (treating them as breaks in the trajectory)
+        jump_indices = np.where(position_changes > self.max_position_change)[0]
+        
+        # Insert NaN values at jump points to break the trajectory
+        x_segmented = np.insert(x, jump_indices + 1, np.nan)
+        y_segmented = np.insert(y, jump_indices + 1, np.nan)
+        
+        # Recalculate valid positions after inserting breaks
+        valid = ~(np.isnan(x_segmented) | np.isnan(y_segmented))
+        x_clean = x_segmented[valid]
+        y_clean = y_segmented[valid]
+        n_points = len(x_clean)
+        
+        # Pre-allocate arrays for kinematic features
+        velocities = np.zeros((n_points, 2), dtype=np.float64)
+        accelerations = np.zeros((n_points, 2), dtype=np.float64)
+        angular_velocities = np.zeros(n_points, dtype=np.float64)
+        curvatures = np.zeros(n_points, dtype=np.float64)
+        
+        # Compute velocities (rest of the computation remains the same)
+        dx = np.gradient(x_clean, self.dt)
+        dy = np.gradient(y_clean, self.dt)
+        velocities[:, 0] = dx
+        velocities[:, 1] = dy
+        velocity_mag = np.sqrt(dx**2 + dy**2)
+        
         # Pre-allocate arrays and use vectorized operations
         valid = ~(np.isnan(x) | np.isnan(y))
         x, y = x[valid], y[valid]
@@ -226,30 +264,30 @@ class SocialContextExtractor:
         
         Args:
             n_sectors: Number of angular sectors for density calculation
-            max_distance: Maximum distance to consider for neighbor interactions
+            max_distance: Maximum distance to consider for neighbour interactions
         """
         self.n_sectors = n_sectors
         self.max_distance = max_distance
         self.sector_angles = np.linspace(0, 2*np.pi, n_sectors+1)
     
     def compute_local_density(self, focal_x: float, focal_y: float, 
-                            neighbor_x: np.ndarray, neighbor_y: np.ndarray) -> np.ndarray:
+                            neighbour_x: np.ndarray, neighbour_y: np.ndarray) -> np.ndarray:
         """
         Compute ant density in different sectors around focal ant using vectorized operations.
         
         Args:
             focal_x: x-coordinate of focal ant
             focal_y: y-coordinate of focal ant
-            neighbor_x: Array of neighbor x-coordinates
-            neighbor_y: Array of neighbor y-coordinates
+            neighbour_x: Array of neighbour x-coordinates
+            neighbour_y: Array of neighbour y-coordinates
             
         Returns:
             Array of ant densities in each sector
         """
         # Vectorized relative position calculation
         rel_positions = np.column_stack([
-            neighbor_x - focal_x,
-            neighbor_y - focal_y
+            neighbour_x - focal_x,
+            neighbour_y - focal_y
         ])
         
         # Vectorized polar coordinate conversion
@@ -272,11 +310,11 @@ class SocialContextExtractor:
         
         return densities
     
-    def compute_nearest_neighbor_stats(self, focal_x: float, focal_y: float,
-                                     neighbor_x: np.ndarray, neighbor_y: np.ndarray,
+    def compute_nearest_neighbour_stats(self, focal_x: float, focal_y: float,
+                                     neighbour_x: np.ndarray, neighbour_y: np.ndarray,
                                      k: int = 3) -> Dict[str, float]:
-        """Compute statistics about k nearest neighbors."""
-        distances = np.sqrt((neighbor_x - focal_x)**2 + (neighbor_y - focal_y)**2)
+        """Compute statistics about k nearest neighbours."""
+        distances = np.sqrt((neighbour_x - focal_x)**2 + (neighbour_y - focal_y)**2)
         sorted_distances = np.sort(distances)
         
         return {
@@ -309,7 +347,8 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
         positions[i, :, 1] = data[ant_id, 'y'].values
     
     for i, ant_id in tqdm(enumerate(ant_ids), 
-                         desc="Processing ants", 
+                         desc="Processing ants",
+                         total=len(ant_ids),
                          bar_format='{desc}: {n}/{total} [{elapsed}<{remaining}, {rate_fmt}]'):
         # Extract trajectory features
         traj_features = feature_extractor.extract_features(
@@ -339,7 +378,7 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
                 other_positions[:, 1]
             )
             
-            nn_stats = social_extractor.compute_nearest_neighbor_stats(
+            nn_stats = social_extractor.compute_nearest_neighbour_stats(
                 positions[i, t, 0],
                 positions[i, t, 1],
                 other_positions[:, 0],
@@ -402,7 +441,7 @@ if __name__ == "__main__":
     print(f"Number of social feature timestamps: {len(social_features)}")
     if social_features:
         print(f"Number of density sectors: {len(social_features[0]['densities'])}")
-        print(f"Available nearest neighbor stats: {list(social_features[0]['nn_stats'].keys())}")
+        print(f"Available nearest neighbour stats: {list(social_features[0]['nn_stats'].keys())}")
     
     # Basic sanity checks
     print("\nPerforming sanity checks:")
