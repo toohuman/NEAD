@@ -308,7 +308,7 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
         positions[i, :, 0] = data[ant_id, 'x'].values
         positions[i, :, 1] = data[ant_id, 'y'].values
     
-    for i, ant_id in (enumerate(ant_ids), desc="Processing ants"):
+    for i, ant_id in tqdm(enumerate(ant_ids), desc="Processing ants"):
         # Extract trajectory features
         traj_features = feature_extractor.extract_features(
             positions[i, :, 0],
