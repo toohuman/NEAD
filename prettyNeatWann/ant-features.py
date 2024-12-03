@@ -118,7 +118,7 @@ class TrajectoryFeatures:
     bout_durations: Dict[str, List[float]]  # durations of different behavioral bouts
 
 class AntFeatureExtractor:
-    """Extract behavioral features from ant trajectory data."""
+    """Extract behavioral features from ant trajectory data using vectorized operations."""
     
     def __init__(self, fps: float = 60.0, velocity_threshold: float = 0.5):
         """
@@ -131,91 +131,79 @@ class AntFeatureExtractor:
         self.dt = 1.0 / fps
         self.velocity_threshold = velocity_threshold
     
-    def compute_velocities(self, x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Compute velocity components and magnitude."""
-        dx = np.gradient(x, self.dt)
-        dy = np.gradient(y, self.dt)
-        velocity_mag = np.sqrt(dx**2 + dy**2)
-        return np.stack([dx, dy], axis=1), velocity_mag
-    
-    def compute_accelerations(self, velocities: np.ndarray) -> np.ndarray:
-        """Compute acceleration components and magnitude."""
-        return np.gradient(velocities, self.dt, axis=0)
-    
-    def compute_angular_velocity(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
-        """Compute angular velocity from position data."""
-        # Calculate heading angles
-        dx = np.gradient(x, self.dt)
-        dy = np.gradient(y, self.dt)
-        angles = np.arctan2(dy, dx)
-        
-        # Compute angular velocity (handling circular wrapping)
-        angular_vel = np.gradient(np.unwrap(angles), self.dt)
-        return angular_vel
-    
-    def compute_curvature(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
-        """Compute path curvature."""
-        dx = np.gradient(x, self.dt)
-        dy = np.gradient(y, self.dt)
-        ddx = np.gradient(dx, self.dt)
-        ddy = np.gradient(dy, self.dt)
-        
-        # Avoid division by zero in curvature calculation
-        denominator = (dx * dx + dy * dy) ** 1.5
-        curvature = np.zeros_like(dx)
-        valid_denom = denominator > 1e-10  # Threshold for numerical stability
-        curvature[valid_denom] = np.abs(dx[valid_denom] * ddy[valid_denom] - 
-                                      dy[valid_denom] * ddx[valid_denom]) / denominator[valid_denom]
-        return curvature
-    
-    def identify_movement_bouts(self, velocity_mag: np.ndarray) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]:
-        """Identify periods of movement and stopping."""
-        is_moving = velocity_mag > self.velocity_threshold
-        
-        # Find transitions
-        state_changes = np.diff(is_moving.astype(int))
-        start_moves = np.where(state_changes == 1)[0] + 1
-        end_moves = np.where(state_changes == -1)[0] + 1
-        
-        # Handle edge cases
-        if is_moving[0]:
-            start_moves = np.insert(start_moves, 0, 0)
-        if is_moving[-1]:
-            end_moves = np.append(end_moves, len(is_moving))
-            
-        move_segments = list(zip(start_moves, end_moves))
-        
-        # Calculate stop segments as the complement of move segments
-        stop_segments = []
-        if len(move_segments) > 0:
-            if move_segments[0][0] > 0:
-                stop_segments.append((0, move_segments[0][0]))
-            for i in range(len(move_segments)-1):
-                stop_segments.append((move_segments[i][1], move_segments[i+1][0]))
-            if move_segments[-1][1] < len(is_moving):
-                stop_segments.append((move_segments[-1][1], len(is_moving)))
-                
-        return move_segments, stop_segments
-    
     def extract_features(self, x: np.ndarray, y: np.ndarray) -> TrajectoryFeatures:
-        """Extract all trajectory features from position data."""
-        # Remove any NaN values
+        """
+        Extract all trajectory features from position data using vectorized operations.
+        
+        Args:
+            x: Array of x positions
+            y: Array of y positions
+            
+        Returns:
+            TrajectoryFeatures object containing all computed features
+        """
+        # Pre-allocate arrays and use vectorized operations
         valid = ~(np.isnan(x) | np.isnan(y))
         x, y = x[valid], y[valid]
+        n_points = len(x)
         
-        # Compute basic kinematic features
-        velocities, velocity_mag = self.compute_velocities(x, y)
-        accelerations = self.compute_accelerations(velocities)
-        angular_velocities = self.compute_angular_velocity(x, y)
-        curvatures = self.compute_curvature(x, y)
+        # Pre-allocate arrays for kinematic features
+        velocities = np.zeros((n_points, 2), dtype=np.float64)
+        accelerations = np.zeros((n_points, 2), dtype=np.float64)
+        angular_velocities = np.zeros(n_points, dtype=np.float64)
+        curvatures = np.zeros(n_points, dtype=np.float64)
         
-        # Identify behavioral segments
-        move_segments, stop_segments = self.identify_movement_bouts(velocity_mag)
+        # Vectorized computation of velocities
+        dx = np.gradient(x, self.dt)
+        dy = np.gradient(y, self.dt)
+        velocities[:, 0] = dx
+        velocities[:, 1] = dy
+        velocity_mag = np.sqrt(dx**2 + dy**2)
         
-        # Calculate bout durations
+        # Vectorized computation of accelerations
+        accelerations[:, 0] = np.gradient(dx, self.dt)
+        accelerations[:, 1] = np.gradient(dy, self.dt)
+        
+        # Vectorized computation of angular velocity
+        angles = np.arctan2(dy, dx)
+        angular_velocities = np.gradient(np.unwrap(angles), self.dt)
+        
+        # Vectorized computation of curvature
+        ddx = np.gradient(dx, self.dt)
+        ddy = np.gradient(dy, self.dt)
+        denominator = (dx * dx + dy * dy) ** 1.5
+        valid_denom = denominator > 1e-10
+        curvatures[valid_denom] = np.abs(
+            dx[valid_denom] * ddy[valid_denom] - 
+            dy[valid_denom] * ddx[valid_denom]
+        ) / denominator[valid_denom]
+        
+        # Identify movement bouts more efficiently
+        is_moving = velocity_mag > self.velocity_threshold
+        state_changes = np.diff(is_moving.astype(int))
+        move_starts = np.where(state_changes == 1)[0] + 1
+        move_ends = np.where(state_changes == -1)[0] + 1
+        
+        # Handle edge cases vectorially
+        if is_moving[0]:
+            move_starts = np.insert(move_starts, 0, 0)
+        if is_moving[-1]:
+            move_ends = np.append(move_ends, len(is_moving))
+            
+        move_segments = list(zip(move_starts, move_ends))
+        
+        # Calculate stop segments vectorially
+        if len(move_segments) > 0:
+            stop_starts = np.array([0] + [end for _, end in move_segments[:-1]])
+            stop_ends = np.array([start for start, _ in move_segments] + [len(is_moving)])
+            stop_segments = list(zip(stop_starts, stop_ends))
+        else:
+            stop_segments = [(0, len(is_moving))]
+        
+        # Calculate bout durations vectorially
         bout_durations = {
-            'move': [self.dt * (end - start) for start, end in move_segments],
-            'stop': [self.dt * (end - start) for start, end in stop_segments]
+            'move': self.dt * np.array([end - start for start, end in move_segments]),
+            'stop': self.dt * np.array([end - start for start, end in stop_segments])
         }
         
         return TrajectoryFeatures(
@@ -230,7 +218,7 @@ class AntFeatureExtractor:
 
 
 class SocialContextExtractor:
-    """Extract features related to social interactions."""
+    """Extract features related to social interactions using vectorized operations."""
     
     def __init__(self, n_sectors: int = 8, max_distance: float = 100.0):
         """
@@ -246,22 +234,42 @@ class SocialContextExtractor:
     
     def compute_local_density(self, focal_x: float, focal_y: float, 
                             neighbor_x: np.ndarray, neighbor_y: np.ndarray) -> np.ndarray:
-        """Compute ant density in different sectors around focal ant."""
-        # Calculate relative positions
-        rel_x = neighbor_x - focal_x
-        rel_y = neighbor_y - focal_y
+        """
+        Compute ant density in different sectors around focal ant using vectorized operations.
         
-        # Convert to polar coordinates
-        distances = np.sqrt(rel_x**2 + rel_y**2)
-        angles = np.arctan2(rel_y, rel_x) % (2*np.pi)
-        
-        # Count ants in each sector within max_distance
-        densities = np.zeros(self.n_sectors)
-        for i in range(self.n_sectors):
-            in_sector = (angles >= self.sector_angles[i]) & (angles < self.sector_angles[i+1])
-            in_range = distances <= self.max_distance
-            densities[i] = np.sum(in_sector & in_range)
+        Args:
+            focal_x: x-coordinate of focal ant
+            focal_y: y-coordinate of focal ant
+            neighbor_x: Array of neighbor x-coordinates
+            neighbor_y: Array of neighbor y-coordinates
             
+        Returns:
+            Array of ant densities in each sector
+        """
+        # Vectorized relative position calculation
+        rel_positions = np.column_stack([
+            neighbor_x - focal_x,
+            neighbor_y - focal_y
+        ])
+        
+        # Vectorized polar coordinate conversion
+        distances = np.linalg.norm(rel_positions, axis=1)
+        angles = np.arctan2(rel_positions[:, 1], rel_positions[:, 0]) % (2*np.pi)
+        
+        # Pre-allocate density array
+        densities = np.zeros(self.n_sectors, dtype=np.float64)
+        
+        # Vectorized sector counting
+        in_range = distances <= self.max_distance
+        valid_angles = angles[in_range]
+        
+        # Use numpy's histogram function for efficient binning
+        densities, _ = np.histogram(
+            valid_angles, 
+            bins=self.sector_angles,
+            range=(0, 2*np.pi)
+        )
+        
         return densities
     
     def compute_nearest_neighbor_stats(self, focal_x: float, focal_y: float,
@@ -275,9 +283,9 @@ class SocialContextExtractor:
             f'nn_dist_{i+1}': dist for i, dist in enumerate(sorted_distances[:k])
         }
 
-def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, any]]:
+def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
     """
-    Process all ant trajectories and extract features.
+    Process all ant trajectories using vectorized operations and efficient memory management.
     
     Args:
         data: DataFrame with MultiIndex columns (ant_id, coordinate)
@@ -290,34 +298,60 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, any]]:
     
     results = {}
     ant_ids = data.columns.levels[0]
+    n_timesteps = len(data)
     
-    for ant_id in tqdm(ant_ids, desc="Processing ants"):
+    # Pre-allocate arrays for positions
+    positions = np.zeros((len(ant_ids), n_timesteps, 2))
+    
+    # Extract positions more efficiently
+    for i, ant_id in enumerate(ant_ids):
+        positions[i, :, 0] = data[ant_id, 'x'].values
+        positions[i, :, 1] = data[ant_id, 'y'].values
+    
+    for i, ant_id in tqdm(enumerate(ant_ids), desc="Processing ants"):
         # Extract trajectory features
-        x = data[ant_id, 'x'].values
-        y = data[ant_id, 'y'].values
+        traj_features = feature_extractor.extract_features(
+            positions[i, :, 0],
+            positions[i, :, 1]
+        )
         
-        traj_features = feature_extractor.extract_features(x, y)
-        
-        # Extract social features for each timestep with progress bar
+        # Pre-allocate social features list with known size
         social_features = []
-        for t in tqdm(range(len(x)), desc=f"Processing timesteps for ant {ant_id}", leave=False):
-            if np.isnan(x[t]) or np.isnan(y[t]):
-                continue
+        
+        # Process social features in chunks for memory efficiency
+        chunk_size = 1000
+        for t in tqdm(range(0, n_timesteps, chunk_size), 
+                     desc=f"Processing timesteps for ant {ant_id}", 
+                     leave=False):
+            chunk_end = min(t + chunk_size, n_timesteps)
+            chunk_positions = positions[:, t:chunk_end, :]
+            
+            for pos_idx in range(chunk_end - t):
+                if np.isnan(chunk_positions[i, pos_idx, 0]):
+                    continue
                 
-            # Get positions of other ants at this timestep more efficiently
-            other_positions = data.loc[t].drop((ant_id, 'x')).drop((ant_id, 'y')).values.reshape(-1, 2)
-            other_x = other_positions[:, 0]
-            other_y = other_positions[:, 1]
-            
-            # Remove NaN values
-            valid = ~(np.isnan(other_x) | np.isnan(other_y))
-            if np.any(valid):  # Only process if we have valid neighbours
-                other_x = other_x[valid]
-                other_y = other_y[valid]
-            
-            if len(other_x) > 0:
-                densities = social_extractor.compute_local_density(x[t], y[t], other_x, other_y)
-                nn_stats = social_extractor.compute_nearest_neighbor_stats(x[t], y[t], other_x, other_y)
+                # Get other ants' positions efficiently
+                other_positions = np.delete(chunk_positions[:, pos_idx, :], i, axis=0)
+                valid_mask = ~np.isnan(other_positions).any(axis=1)
+                if not np.any(valid_mask):
+                    continue
+                
+                other_positions = other_positions[valid_mask]
+                
+                densities = social_extractor.compute_local_density(
+                    chunk_positions[i, pos_idx, 0],
+                    chunk_positions[i, pos_idx, 1],
+                    other_positions[:, 0],
+                    other_positions[:, 1]
+                )
+                
+                nn_stats = social_extractor.compute_nearest_neighbor_stats(
+                    chunk_positions[i, pos_idx, 0],
+                    chunk_positions[i, pos_idx, 1],
+                    other_positions[:, 0],
+                    other_positions[:, 1]
+                )
+                
                 social_features.append({
                     'densities': densities,
                     'nn_stats': nn_stats
