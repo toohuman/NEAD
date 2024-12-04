@@ -45,8 +45,8 @@ TIMESTEP = 1./SIM_FPS       # Not sure if this will be necessary, given the fixe
 TIME_LIMIT = SIM_FPS * 30   # 60 seconds
 
 ANT_DIM = vec2d(5, 5)
-AGENT_SPEED = 10 * 3.25  # Reduced speed for better alignment with target
-TURN_RATE = 10 * math.pi / 360  # Reduced turn rate for smoother movement
+AGENT_SPEED = 120.00  # Maximum ant speed observed in data (pixels)
+TURN_RATE = 0.3575  # Maximum turning rate observed in data (radians) 
 VISION_RANGE = 100  # No idea what is a reasonable value for this.
 
 DRAW_ANT_VISION = True
