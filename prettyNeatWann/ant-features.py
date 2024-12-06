@@ -334,9 +334,9 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
     return results
 
 
-def analyze_colony_clustering(data, eps_mm=10, min_samples=3):
+def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
     """
-    Analyze clustering behaviour of the colony over time using DBSCAN.
+    analyse clustering behaviour of the colony over time using DBSCAN.
     
     Args:
         data: DataFrame with MultiIndex columns (ant_id, coordinate)
@@ -363,7 +363,7 @@ def analyze_colony_clustering(data, eps_mm=10, min_samples=3):
     # Get the actual ant IDs from the filtered data
     ant_ids = sorted(list(set(idx[0] for idx in data.columns)))
     
-    # Analyze each timestep
+    # analyse each timestep
     for t in tqdm(range(len(data)), desc="Analyzing clustering behaviour"):
         # Get positions of all ants at this timestep
         positions = []
@@ -564,8 +564,8 @@ if __name__ == "__main__":
     # --- Analysis and Output ---
     print("\n=== Colony-Level Analysis ===")
     
-    def analyze_movement_patterns(processed_data):
-        """Analyze movement patterns across all ants."""
+    def analyse_movement_patterns(processed_data):
+        """analyse movement patterns across all ants."""
         total_ants = len(processed_data)
         all_move_durations = []
         all_stop_durations = []
@@ -589,8 +589,8 @@ if __name__ == "__main__":
             'movement_ratio': sum(all_move_durations) / (sum(all_move_durations) + sum(all_stop_durations))
         }
 
-    def analyze_social_interactions(processed_data):
-        """Analyze social interaction patterns."""
+    def analyse_social_interactions(processed_data):
+        """analyse social interaction patterns."""
         all_nn_distances = []
         
         for ant_id, ant_data in processed_data.items():
@@ -607,13 +607,13 @@ if __name__ == "__main__":
         }
 
     # Perform analyses
-    movement_stats = analyze_movement_patterns(processed_data)
-    social_stats = analyze_social_interactions(processed_data)
+    movement_stats = analyse_movement_patterns(processed_data)
+    social_stats = analyse_social_interactions(processed_data)
 
     # Print results in a formatted way
     print("\nMovement Analysis:")
     print(f"{'='*50}")
-    print(f"Total ants analyzed: {movement_stats['total_ants']}")
+    print(f"Total ants analysed: {movement_stats['total_ants']}")
     print(f"Average movement bout duration: {movement_stats['avg_move_duration']:.2f} seconds")
     print(f"Average stop bout duration: {movement_stats['avg_stop_duration']:.2f} seconds")
     print(f"Average velocity: {movement_stats['avg_velocity']:.2f} pixels/second")
