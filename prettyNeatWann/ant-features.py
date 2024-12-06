@@ -265,16 +265,21 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
     ant_ids = data.columns.levels[0]
     n_timesteps = len(data)
     
-    # Get sorted list of ant IDs
-    ant_ids = sorted(list(data.columns.levels[0]))
+    # Get the actual ant IDs from the filtered data
+    ant_ids = sorted(list(set(idx[0] for idx in data.columns)))
+    n_ants = len(ant_ids)
     
     # Pre-allocate arrays for positions
-    positions = np.zeros((len(ant_ids), n_timesteps, 2))
+    positions = np.zeros((n_ants, n_timesteps, 2))
     
     # Extract positions more efficiently
     for i, ant_id in enumerate(ant_ids):
-        positions[i, :, 0] = data[ant_id, 'x'].values
-        positions[i, :, 1] = data[ant_id, 'y'].values
+        try:
+            positions[i, :, 0] = data[ant_id, 'x'].values
+            positions[i, :, 1] = data[ant_id, 'y'].values
+        except KeyError:
+            # Handle missing columns gracefully
+            positions[i, :, :] = np.nan
     
     for i, ant_id in tqdm(enumerate(ant_ids), 
                          desc="Processing ants",
