@@ -448,6 +448,51 @@ def save_processed_data(processed_data, processed_dir):
     
     print("Data saved successfully!")
 
+def load_processed_data(processed_dir):
+    """Load previously processed ant data from directory structure."""
+    print("Loading previously processed data...")
+    processed_data = {}
+    
+    # Load the full processed data first
+    try:
+        with open(os.path.join(processed_dir, "behavioral", "processed_data.pkl"), 'rb') as f:
+            processed_data = pickle.load(f)
+            
+        # Verify and load individual feature files
+        for ant_id in processed_data.keys():
+            # Load and verify kinematic features
+            with open(os.path.join(processed_dir, "kinematic", f"ant_{ant_id}_kinematic.pkl"), 'rb') as f:
+                kinematic_data = pickle.load(f)
+            
+            # Load and verify behavioral features
+            with open(os.path.join(processed_dir, "behavioral", f"ant_{ant_id}_behavioral.pkl"), 'rb') as f:
+                behavioral_data = pickle.load(f)
+            
+            # Load and verify social features
+            with open(os.path.join(processed_dir, "social", f"ant_{ant_id}_social.pkl"), 'rb') as f:
+                social_data = pickle.load(f)
+            
+            # Update processed_data with verified data
+            processed_data[ant_id]['trajectory_features'].velocities = kinematic_data['velocities']
+            processed_data[ant_id]['trajectory_features'].accelerations = kinematic_data['accelerations']
+            processed_data[ant_id]['trajectory_features'].angular_velocities = kinematic_data['angular_velocities']
+            processed_data[ant_id]['trajectory_features'].curvatures = kinematic_data['curvatures']
+            
+            processed_data[ant_id]['trajectory_features'].stop_segments = behavioral_data['stop_segments']
+            processed_data[ant_id]['trajectory_features'].move_segments = behavioral_data['move_segments']
+            processed_data[ant_id]['trajectory_features'].bout_durations = behavioral_data['bout_durations']
+            
+            processed_data[ant_id]['social_features'] = social_data
+        
+        print("Data loaded successfully!")
+        return processed_data
+    except FileNotFoundError:
+        print("No processed data found. Please run with --save first.")
+        exit(1)
+    except Exception as e:
+        print(f"Error loading data: {str(e)}")
+        exit(1)
+
 if __name__ == "__main__":
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Process ant trajectory data')
@@ -476,14 +521,7 @@ if __name__ == "__main__":
         os.makedirs(os.path.join(processed_dir, subdir), exist_ok=True)
 
     if args.load:
-        print("Loading previously processed data...")
-        try:
-            with open(os.path.join(processed_dir, "behavioral", "processed_data.pkl"), 'rb') as f:
-                processed_data = pickle.load(f)
-            print("Data loaded successfully!")
-        except FileNotFoundError:
-            print("No processed data found. Please run with --save first.")
-            exit(1)
+        processed_data = load_processed_data(processed_dir)
     else:
         print("Loading raw data...")
         if args.debug:
