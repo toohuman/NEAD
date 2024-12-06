@@ -580,9 +580,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Constants for biological sanity checks
-    PIXELS_PER_MM = 8.1  # Based on 900px = 100mm arena diameter
-    ARENA_CENTER = np.array([450, 450])
-    ARENA_RADIUS = 405  # pixels
+    PIXELS_PER_MM = 8.64  # Based on 864px = 100mm arena diameter (accounting for 2% margin)
+    ARENA_CENTER = np.array([900/2.0, 900/2.0])
+    ARENA_RADIUS = min(900, 900)/2.0 - min(900, 900) * 0.02
     MAX_EXPECTED_VELOCITY = 50  # mm/s
     
     # Create processed data directories if they don't exist
@@ -726,7 +726,8 @@ if __name__ == "__main__":
                            save_path: str = None,
                            fps: int = 10,
                            start_frame: int = 0,
-                           num_frames: int = 1000) -> None:
+                           num_frames: int = 1000,
+                           arena_radius: float = ARENA_RADIUS) -> None:
         import numpy as np
         import matplotlib.pyplot as plt
         import matplotlib.animation as animation
@@ -762,8 +763,8 @@ if __name__ == "__main__":
             if len(positions) == 0:
                 return
             
-            # Plot arena boundary (assuming 900 pixel diameter)
-            circle = plt.Circle((450, 450), 405, fill=False, color='gray', linestyle='--')
+            # Plot arena boundary
+            circle = plt.Circle((450, 450), arena_radius, fill=False, color='gray', linestyle='--')
             ax.add_artist(circle)
             
             # Plot isolated ants (noise points)
