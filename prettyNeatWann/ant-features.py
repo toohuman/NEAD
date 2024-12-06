@@ -54,11 +54,11 @@ class TrajectoryFeatures:
     curvatures: npt.NDArray[np.float64]
     stop_segments: List[Tuple[int, int]]  # start and end indices of stops
     move_segments: List[Tuple[int, int]]  # start and end indices of movements
-    bout_durations: Dict[str, List[float]]  # durations of different behavioral bouts
+    bout_durations: Dict[str, List[float]]  # durations of different behavioural bouts
 
 
 class AntFeatureExtractor:
-    """Extract behavioral features from ant trajectory data using vectorized operations."""
+    """Extract behavioural features from ant trajectory data using vectorized operations."""
     
     def __init__(self, fps: float = 60.0, velocity_threshold: float = 0.5, max_position_change: float = 10.0):
         """
@@ -418,7 +418,7 @@ def save_processed_data(processed_data, processed_dir):
     """Save processed ant data to directory structure."""
     print("\nSaving processed data...")
     # Save the full processed data
-    with open(os.path.join(processed_dir, "behavioral", "processed_data.pkl"), 'wb') as f:
+    with open(os.path.join(processed_dir, "behavioural", "processed_data.pkl"), 'wb') as f:
         pickle.dump(processed_data, f)
     
     # Save specific features to their respective directories
@@ -433,14 +433,14 @@ def save_processed_data(processed_data, processed_dir):
         with open(os.path.join(processed_dir, "kinematic", f"ant_{ant_id}_kinematic.pkl"), 'wb') as f:
             pickle.dump(kinematic_data, f)
         
-        # Save behavioral features
-        behavioral_data = {
+        # Save behavioural features
+        behavioural_data = {
             'stop_segments': ant_data['trajectory_features'].stop_segments,
             'move_segments': ant_data['trajectory_features'].move_segments,
             'bout_durations': ant_data['trajectory_features'].bout_durations
         }
-        with open(os.path.join(processed_dir, "behavioral", f"ant_{ant_id}_behavioral.pkl"), 'wb') as f:
-            pickle.dump(behavioral_data, f)
+        with open(os.path.join(processed_dir, "behavioural", f"ant_{ant_id}_behavioural.pkl"), 'wb') as f:
+            pickle.dump(behavioural_data, f)
         
         # Save social features
         with open(os.path.join(processed_dir, "social", f"ant_{ant_id}_social.pkl"), 'wb') as f:
@@ -455,7 +455,7 @@ def load_processed_data(processed_dir):
     
     # Load the full processed data first
     try:
-        with open(os.path.join(processed_dir, "behavioral", "processed_data.pkl"), 'rb') as f:
+        with open(os.path.join(processed_dir, "behavioural", "processed_data.pkl"), 'rb') as f:
             processed_data = pickle.load(f)
             
         # Verify and load individual feature files
@@ -464,9 +464,9 @@ def load_processed_data(processed_dir):
             with open(os.path.join(processed_dir, "kinematic", f"ant_{ant_id}_kinematic.pkl"), 'rb') as f:
                 kinematic_data = pickle.load(f)
             
-            # Load and verify behavioral features
-            with open(os.path.join(processed_dir, "behavioral", f"ant_{ant_id}_behavioral.pkl"), 'rb') as f:
-                behavioral_data = pickle.load(f)
+            # Load and verify behavioural features
+            with open(os.path.join(processed_dir, "behavioural", f"ant_{ant_id}_behavioural.pkl"), 'rb') as f:
+                behavioural_data = pickle.load(f)
             
             # Load and verify social features
             with open(os.path.join(processed_dir, "social", f"ant_{ant_id}_social.pkl"), 'rb') as f:
@@ -478,9 +478,9 @@ def load_processed_data(processed_dir):
             processed_data[ant_id]['trajectory_features'].angular_velocities = kinematic_data['angular_velocities']
             processed_data[ant_id]['trajectory_features'].curvatures = kinematic_data['curvatures']
             
-            processed_data[ant_id]['trajectory_features'].stop_segments = behavioral_data['stop_segments']
-            processed_data[ant_id]['trajectory_features'].move_segments = behavioral_data['move_segments']
-            processed_data[ant_id]['trajectory_features'].bout_durations = behavioral_data['bout_durations']
+            processed_data[ant_id]['trajectory_features'].stop_segments = behavioural_data['stop_segments']
+            processed_data[ant_id]['trajectory_features'].move_segments = behavioural_data['move_segments']
+            processed_data[ant_id]['trajectory_features'].bout_durations = behavioural_data['bout_durations']
             
             processed_data[ant_id]['social_features'] = social_data
         
@@ -517,7 +517,7 @@ if __name__ == "__main__":
     
     # Create processed data directories if they don't exist
     processed_dir = os.path.join(DATA_DIRECTORY, "processed_data")
-    for subdir in ["behavioral", "kinematic", "social"]:
+    for subdir in ["behavioural", "kinematic", "social"]:
         os.makedirs(os.path.join(processed_dir, subdir), exist_ok=True)
 
     if args.load:
