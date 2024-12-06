@@ -21,91 +21,6 @@ def load_data(source_dir, input_file, scale=None, arena_dim=None):
     return data.iloc[::int(scale)] if scale else data
 
 
-def save_processed_data_chunked(data: Dict[int, Dict[str, Any]], 
-                              output_dir: str,
-                              base_filename: str) -> None:
-    """
-    Save processed ant behavioural data as separate files by feature type.
-    
-    Structure:
-    output_dir/processed_data/
-    ├── kinematic/
-    │   ├── velocities_ant_{id}.pkl.xz
-    │   ├── accelerations_ant_{id}.pkl.xz
-    │   ├── angular_velocities_ant_{id}.pkl.xz
-    │   └── curvatures_ant_{id}.pkl.xz
-    ├── behavioural/
-    │   ├── segments_ant_{id}.pkl.xz  (contains stop/move segments)
-    │   └── bout_durations_ant_{id}.pkl.xz
-    └── social/
-        └── social_features_ant_{id}.pkl.xz
-    """
-    # Create directory structure
-    base_dir = os.path.join(output_dir, 'processed_data')
-    for subdir in ['kinematic', 'behavioural', 'social']:
-        Path(os.path.join(base_dir, subdir)).mkdir(parents=True, exist_ok=True)
-    
-    print("Saving data in chunks...")
-    
-    # Process each ant separately
-    for ant_id, ant_data in tqdm(data.items(), desc="Processing ants"):
-        traj_features = ant_data['trajectory_features']
-        
-        # Save kinematic features
-        kinematic_features = {
-            'velocities': traj_features.velocities,
-            'accelerations': traj_features.accelerations,
-            'angular_velocities': traj_features.angular_velocities,
-            'curvatures': traj_features.curvatures
-        }
-        for feature_name, feature_data in kinematic_features.items():
-            filename = f"{feature_name}_ant_{ant_id}.pkl.xz"
-            filepath = os.path.join(base_dir, 'kinematic', filename)
-            with lzma.open(filepath, 'wb') as f:
-                pickle.dump(feature_data, f)
-        
-        # Save behavioural features
-        behavioural_features = {
-            'segments': {
-                'stop_segments': traj_features.stop_segments,
-                'move_segments': traj_features.move_segments
-            },
-            'bout_durations': traj_features.bout_durations
-        }
-        for feature_name, feature_data in behavioural_features.items():
-            filename = f"{feature_name}_ant_{ant_id}.pkl.xz"
-            filepath = os.path.join(base_dir, 'behavioural', filename)
-            with lzma.open(filepath, 'wb') as f:
-                pickle.dump(feature_data, f)
-        
-        # Save social features
-        filename = f"social_features_ant_{ant_id}.pkl.xz"
-        filepath = os.path.join(base_dir, 'social', filename)
-        with lzma.open(filepath, 'wb') as f:
-            pickle.dump(ant_data['social_features'], f)
-
-def load_processed_data(filepath: str) -> Dict[int, Dict[str, Any]]:
-    """
-    Load processed ant behavioral data from a compressed file.
-    
-    Args:
-        filepath: Path to the compressed data file
-    
-    Returns:
-        Dictionary containing processed ant data
-    """
-    with lzma.open(filepath, 'rb') as f:
-        data = pickle.load(f)
-    
-    # Reconstruct TrajectoryFeatures objects
-    reconstructed_data = {}
-    for ant_id, ant_data in data.items():
-        reconstructed_data[ant_id] = {
-            'trajectory_features': TrajectoryFeatures(**ant_data['trajectory_features']),
-            'social_features': ant_data['social_features']
-        }
-
-
 @dataclass
 class TrajectoryFeatures:
     """Container for extracted trajectory features."""
@@ -117,10 +32,11 @@ class TrajectoryFeatures:
     move_segments: List[Tuple[int, int]]  # start and end indices of movements
     bout_durations: Dict[str, List[float]]  # durations of different behavioral bouts
 
+
 class AntFeatureExtractor:
     """Extract behavioral features from ant trajectory data using vectorized operations."""
     
-    def __init__(self, fps: float = 60.0, velocity_threshold: float = 0.5, max_position_change: float = 100.0):
+    def __init__(self, fps: float = 60.0, velocity_threshold: float = 0.5, max_position_change: float = 10.0):
         """
         Initialize the feature extractor.
         
@@ -356,7 +272,7 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
             positions[i, :, 1]
         )
         
-        # Process all social features at once instead of chunking
+        # Process all social features
         social_features = []
         
         for t in tqdm(range(n_timesteps), desc=f"Processing timesteps for ant {ant_id}", leave=False):
@@ -397,7 +313,7 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
     
     return results
 
-# Example usage:
+
 if __name__ == "__main__":
     # Load and process original data
     print("Loading data...")
@@ -466,42 +382,3 @@ if __name__ == "__main__":
         print(f"Move segments properly ordered: {segments_ordered}")
         print(f"Move segments continuous: {segments_continuous}")
     
-    # Save processed data in chunks
-    print("\nSaving processed data...")
-    save_start_time = time.time()
-    output_directory = DATA_DIRECTORY
-    base_filename = "ant_features"
-    save_processed_data_chunked(processed_data, output_directory, base_filename)
-    save_time = time.time() - save_start_time
-    print(f"Data saved in {save_time:.2f} seconds")
-    
-    # Test loading the saved data
-    print("\nTesting data loading...")
-    load_start_time = time.time()
-    loaded_data = load_processed_data_chunked(
-        os.path.join(output_directory, 'processed_data'),
-        ant_ids=[first_ant]
-    )
-    load_time = time.time() - load_start_time
-    print(f"Data loaded in {load_time:.2f} seconds")
-    
-    # Verify loaded data matches original
-    print("\nVerifying loaded data integrity:")
-    original_features = processed_data[first_ant]['trajectory_features']
-    loaded_features = loaded_data[first_ant]['trajectory_features']
-    
-    velocities_match = np.allclose(
-        original_features.velocities, 
-        loaded_features.velocities,
-        equal_nan=True
-    )
-    segments_match = (original_features.move_segments == loaded_features.move_segments)
-    
-    print(f"Velocities match: {velocities_match}")
-    print(f"Movement segments match: {segments_match}")
-    
-    # Memory usage statistics
-    import psutil
-    process = psutil.Process()
-    memory_usage = process.memory_info().rss / 1024 / 1024  # Convert to MB
-    print(f"\nCurrent memory usage: {memory_usage:.2f} MB")
