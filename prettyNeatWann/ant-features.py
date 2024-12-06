@@ -492,18 +492,21 @@ def load_processed_data(processed_dir):
                 print(f"Loading social data from {social_path}")
                 with open(social_path, 'rb') as f:
                     social_data = pickle.load(f)
-            
-            # Update processed_data with verified data
-            processed_data[ant_id]['trajectory_features'].velocities = kinematic_data['velocities']
-            processed_data[ant_id]['trajectory_features'].accelerations = kinematic_data['accelerations']
-            processed_data[ant_id]['trajectory_features'].angular_velocities = kinematic_data['angular_velocities']
-            processed_data[ant_id]['trajectory_features'].curvatures = kinematic_data['curvatures']
-            
-            processed_data[ant_id]['trajectory_features'].stop_segments = behavioural_data['stop_segments']
-            processed_data[ant_id]['trajectory_features'].move_segments = behavioural_data['move_segments']
-            processed_data[ant_id]['trajectory_features'].bout_durations = behavioural_data['bout_durations']
-            
-            processed_data[ant_id]['social_features'] = social_data
+                
+                # Update processed_data with verified data
+                processed_data[ant_id]['trajectory_features'].velocities = kinematic_data['velocities']
+                processed_data[ant_id]['trajectory_features'].accelerations = kinematic_data['accelerations']
+                processed_data[ant_id]['trajectory_features'].angular_velocities = kinematic_data['angular_velocities']
+                processed_data[ant_id]['trajectory_features'].curvatures = kinematic_data['curvatures']
+                
+                processed_data[ant_id]['trajectory_features'].stop_segments = behavioural_data['stop_segments']
+                processed_data[ant_id]['trajectory_features'].move_segments = behavioural_data['move_segments']
+                processed_data[ant_id]['trajectory_features'].bout_durations = behavioural_data['bout_durations']
+                
+                processed_data[ant_id]['social_features'] = social_data
+            except Exception as e:
+                print(f"Error processing ant {ant_id}: {str(e)}")
+                continue
         
         print("Data loaded successfully!")
         return processed_data
