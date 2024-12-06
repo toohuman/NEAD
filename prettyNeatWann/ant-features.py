@@ -495,9 +495,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Process ant trajectory data')
     parser.add_argument('--debug', action='store_true', 
                       help='Run in debug mode (process subset of ants and timesteps)')
-    parser.add_argument('--debug-ants', type=int, default=5,
+    parser.add_argument('--ants', type=int, default=5,
                       help='Number of ants to process in debug mode (default: 5)')
-    parser.add_argument('--debug-timesteps', type=int, default=10000,
+    parser.add_argument('--timesteps', type=int, default=10000,
                       help='Number of timesteps to process in debug mode (default: 10000)')
     parser.add_argument('--save', action='store_true',
                       help='Save processed data to processed_data directory')
@@ -521,9 +521,9 @@ if __name__ == "__main__":
     else:
         print("Loading raw data...")
         if args.debug:
-            print(f"DEBUG MODE: Processing first {args.debug_ants} ants and {args.debug_timesteps} timesteps")
+            print(f"DEBUG MODE: Processing first {args.ants} ants and {args.timesteps} timesteps")
         data = load_data(DATA_DIRECTORY, INPUT_FILE, debug=args.debug, 
-                        debug_ants=args.debug_ants, debug_timesteps=args.debug_timesteps)
+                        debug_ants=args.ants, debug_timesteps=args.timesteps)
         
         print("\nData Overview:")
         print(f"Total timesteps: {len(data):,}")
