@@ -8,6 +8,7 @@ import numpy.typing as npt
 import lzma
 import pickle
 import os
+import time
 from pathlib import Path
 
 DATA_DIRECTORY = "data/2023_2/"
@@ -315,70 +316,100 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
 
 
 if __name__ == "__main__":
-    # Load and process original data
+# Constants for biological sanity checks
+    PIXELS_PER_MM = 8.1  # Based on 900px = 100mm arena diameter
+    ARENA_CENTER = np.array([450, 450])
+    ARENA_RADIUS = 405  # pixels
+    MAX_EXPECTED_VELOCITY = 50  # mm/s
+    
     print("Loading data...")
     data = load_data(DATA_DIRECTORY, INPUT_FILE)
     
-    # Basic data validation
-    print("\nInitial data validation:")
-    print(f"Number of timesteps: {len(data)}")
+    print("\nData Overview:")
+    print(f"Total timesteps: {len(data):,}")
     print(f"Number of ants: {len(data.columns.levels[0])}")
-    print(f"Data shape: {data.shape}")
+    print(f"Recording duration: {len(data)/60:.1f} minutes")
     
-    # Process data and time the execution
-    print("\nProcessing ant data...")
-    import time
+    print("\nProcessing ant trajectories...")
     start_time = time.time()
     processed_data = process_ant_data(data)
-    processing_time = time.time() - start_time
-    print(f"Processing completed in {processing_time:.2f} seconds")
+    print(f"Processing completed in {(time.time() - start_time)/60:.1f} minutes")
     
-    # Validate processed data structure
-    print("\nValidating processed data structure:")
-    first_ant = list(processed_data.keys())[0]
-    features = processed_data[first_ant]['trajectory_features']
+    # Colony-wide statistics
+    print("\n=== Colony-wide Analysis ===")
     
-    print("\nFeature shapes:")
-    print(f"Velocities: {features.velocities.shape}")
-    print(f"Accelerations: {features.accelerations.shape}")
-    print(f"Angular velocities: {features.angular_velocities.shape}")
-    print(f"Curvatures: {features.curvatures.shape}")
+    # Initialize containers for colony statistics
+    colony_velocities = []
+    colony_move_durations = []
+    colony_stop_durations = []
+    colony_distances_from_center = []
+    colony_nn_distances = []
+    colony_tracking_segments = []
+    colony_activity_ratios = []
     
-    # Validate movement segmentation
-    print("\nMovement segmentation validation:")
-    print(f"Number of move segments: {len(features.move_segments)}")
-    print(f"Number of stop segments: {len(features.stop_segments)}")
-    print(f"Total move duration: {sum(features.bout_durations['move']):.2f} seconds")
-    print(f"Total stop duration: {sum(features.bout_durations['stop']):.2f} seconds")
+    # Collect statistics from all ants
+    for ant_id, ant_data in processed_data.items():
+        features = ant_data['trajectory_features']
+        
+        # Velocities
+        velocities_mm_s = np.linalg.norm(features.velocities, axis=1) / PIXELS_PER_MM
+        colony_velocities.extend(velocities_mm_s)
+        
+        # Movement patterns
+        colony_move_durations.extend(features.bout_durations['move'])
+        colony_stop_durations.extend(features.bout_durations['stop'])
+        colony_tracking_segments.append(len(features.move_segments))
+        
+        # Activity ratio
+        total_time = len(features.velocities) / 60  # in seconds
+        moving_time = sum(features.bout_durations['move'])
+        colony_activity_ratios.append(moving_time/total_time if total_time > 0 else 0)
+        
+        # Spatial distribution
+        positions = np.column_stack([
+            data[ant_id, 'x'].values,
+            data[ant_id, 'y'].values
+        ])
+        distances = np.sqrt(np.sum((positions - ARENA_CENTER)**2, axis=1))
+        colony_distances_from_center.extend(distances[~np.isnan(distances)])
+        
+        # Social distances
+        if ant_data['social_features']:
+            nn_distances = [sf['nn_stats']['nn_dist_1'] for sf in ant_data['social_features']]
+            colony_nn_distances.extend(nn_distances)
     
-    # Validate social features
-    print("\nSocial features validation:")
-    social_features = processed_data[first_ant]['social_features']
-    print(f"Number of social feature timestamps: {len(social_features)}")
-    if social_features:
-        print(f"Number of density sectors: {len(social_features[0]['densities'])}")
-        print(f"Available nearest neighbour stats: {list(social_features[0]['nn_stats'].keys())}")
+    print("\nMovement Statistics (Colony-wide):")
+    print(f"Velocity (mm/s):")
+    print(f"  Maximum: {np.max(colony_velocities):.1f}")
+    print(f"  Mean ± SD: {np.mean(colony_velocities):.1f} ± {np.std(colony_velocities):.1f}")
+    print(f"  Median: {np.median(colony_velocities):.1f}")
     
-    # Basic sanity checks
-    print("\nPerforming sanity checks:")
+    print(f"\nBout Durations (seconds):")
+    print(f"Movement bouts:")
+    print(f"  Mean ± SD: {np.mean(colony_move_durations):.2f} ± {np.std(colony_move_durations):.2f}")
+    print(f"  Median: {np.median(colony_move_durations):.2f}")
+    print(f"Stop bouts:")
+    print(f"  Mean ± SD: {np.mean(colony_stop_durations):.2f} ± {np.std(colony_stop_durations):.2f}")
+    print(f"  Median: {np.median(colony_stop_durations):.2f}")
     
-    # Check for NaN values
-    velocities = features.velocities
-    nan_count = np.isnan(velocities).sum()
-    print(f"NaN values in velocities: {nan_count}")
+    print(f"\nActivity Patterns:")
+    print(f"  Mean activity ratio: {np.mean(colony_activity_ratios):.2%}")
+    print(f"  Activity ratio range: {np.min(colony_activity_ratios):.2%} - {np.max(colony_activity_ratios):.2%}")
+    print(f"  Tracking segments per ant: {np.mean(colony_tracking_segments):.1f} ± {np.std(colony_tracking_segments):.1f}")
     
-    # Check for reasonable velocity ranges
-    max_velocity = np.max(np.linalg.norm(velocities, axis=1))
-    mean_velocity = np.mean(np.linalg.norm(velocities, axis=1))
-    print(f"Maximum velocity: {max_velocity:.2f} units/second")
-    print(f"Mean velocity: {mean_velocity:.2f} units/second")
+    print("\nSpatial Distribution:")
+    distances_mm = np.array(colony_distances_from_center) / PIXELS_PER_MM
+    print(f"  Mean distance from center: {np.mean(distances_mm):.1f} mm")
+    print(f"  Distance range: {np.min(distances_mm):.1f} - {np.max(distances_mm):.1f} mm")
+    outside_points = np.sum(distances_mm > (ARENA_RADIUS/PIXELS_PER_MM))
+    print(f"  Points outside arena: {100 * outside_points/len(distances_mm):.2f}%")
     
-    # Verify segment continuity
-    move_segments = features.move_segments
-    if move_segments:
-        segments_ordered = all(seg[0] < seg[1] for seg in move_segments)
-        segments_continuous = all(move_segments[i][1] <= move_segments[i+1][0] 
-                                for i in range(len(move_segments)-1))
-        print(f"Move segments properly ordered: {segments_ordered}")
-        print(f"Move segments continuous: {segments_continuous}")
+    print("\nSocial Interactions:")
+    nn_distances_mm = np.array(colony_nn_distances) / PIXELS_PER_MM
+    print(f"  Mean nearest neighbour distance: {np.mean(nn_distances_mm):.1f} mm")
+    print(f"  Nearest neighbour range: {np.min(nn_distances_mm):.1f} - {np.max(nn_distances_mm):.1f} mm")
     
+    print("\nData Quality Metrics:")
+    high_velocity_count = np.sum(np.array(colony_velocities) > MAX_EXPECTED_VELOCITY)
+    print(f"  Suspicious velocities: {100 * high_velocity_count/len(colony_velocities):.2f}%")
+    print(f"  Missing position data: {100 * np.sum(np.isnan(data.values))/data.size:.2f}%")
