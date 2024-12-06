@@ -16,7 +16,7 @@ from pathlib import Path
 DATA_DIRECTORY = "data/2023_2/"
 INPUT_FILE = 'KA050_processed_10cm_5h_20230614.pkl.xz'
 
-def load_data(source_dir, input_file, scale=None, arena_dim=None, debug=False, debug_timesteps=10000):
+def load_data(source_dir, input_file, scale=None, arena_dim=None, debug=False, debug_ants=5, debug_timesteps=10000):
     """
     Load data from a compressed pickle file.
     
@@ -25,7 +25,8 @@ def load_data(source_dir, input_file, scale=None, arena_dim=None, debug=False, d
         input_file: Name of the data file
         scale: Sampling rate for the data
         arena_dim: Arena dimensions
-        debug: If True, only load first 5 ants
+        debug: If True, only load subset of ants
+        debug_ants: Number of ants to load in debug mode
         debug_timesteps: Number of timesteps to load in debug mode
     """
     data = None
@@ -35,8 +36,8 @@ def load_data(source_dir, input_file, scale=None, arena_dim=None, debug=False, d
     if debug:
         # Limit timesteps first
         data = data.iloc[:debug_timesteps]
-        # Then select first 5 ants
-        ant_ids = sorted(list(data.columns.levels[0]))[:5]
+        # Then select first N ants
+        ant_ids = sorted(list(data.columns.levels[0]))[:debug_ants]
         # Keep only the selected ant columns
         cols_to_keep = [(ant, coord) for ant in ant_ids for coord in ['x', 'y']]
         data = data[cols_to_keep]
@@ -417,7 +418,11 @@ if __name__ == "__main__":
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Process ant trajectory data')
     parser.add_argument('--debug', action='store_true', 
-                      help='Run in debug mode (process only first 5 ants and 10000 timesteps)')
+                      help='Run in debug mode (process subset of ants and timesteps)')
+    parser.add_argument('--debug-ants', type=int, default=5,
+                      help='Number of ants to process in debug mode (default: 5)')
+    parser.add_argument('--debug-timesteps', type=int, default=10000,
+                      help='Number of timesteps to process in debug mode (default: 10000)')
     parser.add_argument('--save', action='store_true',
                       help='Save processed data to processed_data directory')
     parser.add_argument('--load', action='store_true',
@@ -448,8 +453,9 @@ if __name__ == "__main__":
     else:
         print("Loading raw data...")
         if args.debug:
-            print("DEBUG MODE: Processing only first 5 ants and 10000 timesteps")
-        data = load_data(DATA_DIRECTORY, INPUT_FILE, debug=args.debug, debug_timesteps=DEBUG_TIMESTEPS)
+            print(f"DEBUG MODE: Processing first {args.debug_ants} ants and {args.debug_timesteps} timesteps")
+        data = load_data(DATA_DIRECTORY, INPUT_FILE, debug=args.debug, 
+                        debug_ants=args.debug_ants, debug_timesteps=args.debug_timesteps)
         
         print("\nData Overview:")
         print(f"Total timesteps: {len(data):,}")
