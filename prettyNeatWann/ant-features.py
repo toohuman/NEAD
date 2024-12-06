@@ -513,6 +513,38 @@ def load_processed_data(processed_dir):
         print(f"Error loading data: {str(e)}")
         exit(1)
 
+def save_cluster_data(clustering_stats, processed_dir):
+    """Save colony clustering data to directory."""
+    print("\nSaving clustering data...")
+    clustering_path = os.path.join(processed_dir, "cluster", "colony_clustering.pkl")
+    with open(clustering_path, 'wb') as f:
+        pickle.dump(clustering_stats, f)
+    print("Clustering data saved successfully!")
+
+def load_cluster_data(processed_dir):
+    """Load previously saved colony clustering data.
+    
+    Args:
+        processed_dir: Directory containing the processed data
+        
+    Returns:
+        Dictionary containing clustering statistics over time
+    """
+    print("Loading clustering data...")
+    clustering_path = os.path.join(processed_dir, "cluster", "colony_clustering.pkl")
+    
+    try:
+        with open(clustering_path, 'rb') as f:
+            clustering_stats = pickle.load(f)
+        print("Clustering data loaded successfully!")
+        return clustering_stats
+    except FileNotFoundError:
+        print("No clustering data found. Please run with --save first.")
+        exit(1)
+    except Exception as e:
+        print(f"Error loading clustering data: {str(e)}")
+        exit(1)
+
 if __name__ == "__main__":
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Process ant trajectory data')
@@ -541,6 +573,7 @@ if __name__ == "__main__":
 
     if args.load:
         processed_data = load_processed_data(processed_dir)
+        clustering_stats = load_cluster_data(processed_dir)
     else:
         print("Loading raw data...")
         if args.debug:
@@ -558,8 +591,12 @@ if __name__ == "__main__":
         processed_data = process_ant_data(data)
         print(f"Processing completed in {(time.time() - start_time)/60:.1f} minutes")
         
+        print("\nAnalysing colony clustering...")
+        clustering_stats = analyse_colony_clustering(data)
+        
         if args.save:
             save_processed_data(processed_data, processed_dir)
+            save_cluster_data(clustering_stats, processed_dir)
     
 
     
