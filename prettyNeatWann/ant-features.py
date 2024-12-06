@@ -111,40 +111,28 @@ class AntFeatureExtractor:
         angular_velocities = np.zeros(n_points, dtype=np.float64)
         curvatures = np.zeros(n_points, dtype=np.float64)
         
-        # Compute velocities (rest of the computation remains the same)
+        # Compute velocities with bounded gradient
         dx = np.gradient(x_clean, self.dt)
         dy = np.gradient(y_clean, self.dt)
+        
+        # Bound the velocities by max_position_change/dt
+        max_velocity = self.max_position_change / self.dt
+        dx = np.clip(dx, -max_velocity, max_velocity)
+        dy = np.clip(dy, -max_velocity, max_velocity)
+        
         velocities[:, 0] = dx
         velocities[:, 1] = dy
         velocity_mag = np.sqrt(dx**2 + dy**2)
         
-        # Pre-allocate arrays and use vectorized operations
-        valid = ~(np.isnan(x) | np.isnan(y))
-        x, y = x[valid], y[valid]
-        n_points = len(x)
-        
-        # Pre-allocate arrays for kinematic features
-        velocities = np.zeros((n_points, 2), dtype=np.float64)
-        accelerations = np.zeros((n_points, 2), dtype=np.float64)
-        angular_velocities = np.zeros(n_points, dtype=np.float64)
-        curvatures = np.zeros(n_points, dtype=np.float64)
-        
-        # Vectorized computation of velocities
-        dx = np.gradient(x, self.dt)
-        dy = np.gradient(y, self.dt)
-        velocities[:, 0] = dx
-        velocities[:, 1] = dy
-        velocity_mag = np.sqrt(dx**2 + dy**2)
-        
-        # Vectorized computation of accelerations
+        # Compute accelerations
         accelerations[:, 0] = np.gradient(dx, self.dt)
         accelerations[:, 1] = np.gradient(dy, self.dt)
         
-        # Vectorized computation of angular velocity
+        # Compute angular velocity
         angles = np.arctan2(dy, dx)
         angular_velocities = np.gradient(np.unwrap(angles), self.dt)
         
-        # Vectorized computation of curvature
+        # Compute curvature
         ddx = np.gradient(dx, self.dt)
         ddy = np.gradient(dy, self.dt)
         denominator = (dx * dx + dy * dy) ** 1.5
