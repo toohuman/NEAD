@@ -113,17 +113,32 @@ class AntFeatureExtractor:
         angular_velocities = np.zeros(n_points, dtype=np.float64)
         curvatures = np.zeros(n_points, dtype=np.float64)
         
-        # Compute velocities with bounded gradient
+        # Compute velocities
         dx = np.gradient(x_clean, self.dt)
         dy = np.gradient(y_clean, self.dt)
-        
-        # Bound the velocities by max_position_change/dt
-        max_velocity = self.max_position_change / self.dt
-        dx = np.clip(dx, -max_velocity, max_velocity)
-        dy = np.clip(dy, -max_velocity, max_velocity)
-        
+        velocity_magnitude = np.sqrt(dx**2 + dy**2)
+
+        # Identify large velocity jumps
+        large_velocity_jumps = velocity_magnitude > self.max_velocity_pixels
+
+        # Debug printing for large velocity jumps
+        for idx in np.where(large_velocity_jumps)[0]:
+            start_idx = max(0, idx - 5)
+            end_idx = min(len(x_clean), idx + 6)
+            print(f"\nLarge velocity jump detected at index {idx}:")
+            print(f"Velocity: {velocity_magnitude[idx]:.2f} pixels/second")
+            print("Position data around the jump:")
+            for i in range(start_idx, end_idx):
+                print(f"Index {i}: x = {x_clean[i]:.2f}, y = {y_clean[i]:.2f}")
+
+        # Apply velocity threshold
+        dx[large_velocity_jumps] = np.nan
+        dy[large_velocity_jumps] = np.nan
+
         velocities[:, 0] = dx
         velocities[:, 1] = dy
+
+        # Recompute velocity_mag after filtering
         velocity_mag = np.sqrt(dx**2 + dy**2)
         
         # Compute accelerations
