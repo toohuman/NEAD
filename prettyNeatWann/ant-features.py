@@ -455,19 +455,43 @@ def load_processed_data(processed_dir):
                            if f.startswith("ant_") and f.endswith("_behavioural.pkl")]
         ant_ids = [f.split("_")[1] for f in behavioural_files]
         
+        print(f"Found ant IDs: {ant_ids}")
+        
         # Load data for each ant
         for ant_id in ant_ids:
-            # Load and verify kinematic features
-            with open(os.path.join(processed_dir, "kinematic", f"ant_{ant_id}_kinematic.pkl"), 'rb') as f:
-                kinematic_data = pickle.load(f)
-            
-            # Load and verify behavioural features
-            with open(os.path.join(processed_dir, "behavioural", f"ant_{ant_id}_behavioural.pkl"), 'rb') as f:
-                behavioural_data = pickle.load(f)
-            
-            # Load and verify social features
-            with open(os.path.join(processed_dir, "social", f"ant_{ant_id}_social.pkl"), 'rb') as f:
-                social_data = pickle.load(f)
+            print(f"\nProcessing ant {ant_id}")
+            try:
+                # Initialize the data structure for this ant
+                processed_data[ant_id] = {
+                    'trajectory_features': TrajectoryFeatures(
+                        velocities=None,
+                        accelerations=None,
+                        angular_velocities=None,
+                        curvatures=None,
+                        stop_segments=None,
+                        move_segments=None,
+                        bout_durations=None
+                    ),
+                    'social_features': None
+                }
+                
+                # Load and verify kinematic features
+                kinematic_path = os.path.join(processed_dir, "kinematic", f"ant_{ant_id}_kinematic.pkl")
+                print(f"Loading kinematic data from {kinematic_path}")
+                with open(kinematic_path, 'rb') as f:
+                    kinematic_data = pickle.load(f)
+                
+                # Load and verify behavioural features 
+                behavioural_path = os.path.join(processed_dir, "behavioural", f"ant_{ant_id}_behavioural.pkl")
+                print(f"Loading behavioural data from {behavioural_path}")
+                with open(behavioural_path, 'rb') as f:
+                    behavioural_data = pickle.load(f)
+                
+                # Load and verify social features
+                social_path = os.path.join(processed_dir, "social", f"ant_{ant_id}_social.pkl")
+                print(f"Loading social data from {social_path}")
+                with open(social_path, 'rb') as f:
+                    social_data = pickle.load(f)
             
             # Update processed_data with verified data
             processed_data[ant_id]['trajectory_features'].velocities = kinematic_data['velocities']
