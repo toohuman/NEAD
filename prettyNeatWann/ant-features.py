@@ -418,6 +418,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Process ant trajectory data')
     parser.add_argument('--debug', action='store_true', 
                       help='Run in debug mode (process only first 5 ants and 10000 timesteps)')
+    parser.add_argument('--save', action='store_true',
+                      help='Save processed data to processed_data directory')
+    parser.add_argument('--load', action='store_true',
+                      help='Load previously processed data instead of processing raw data')
     args = parser.parse_args()
 
     # Constants for biological sanity checks
@@ -427,21 +431,69 @@ if __name__ == "__main__":
     MAX_EXPECTED_VELOCITY = 50  # mm/s
     DEBUG_TIMESTEPS = 10000
     
-    print("Loading data...")
-    if args.debug:
-        print("DEBUG MODE: Processing only first 5 ants and 10000 timesteps")
-    data = load_data(DATA_DIRECTORY, INPUT_FILE, debug=args.debug, debug_timesteps=DEBUG_TIMESTEPS)
-    
-    print("\nData Overview:")
-    print(f"Total timesteps: {len(data):,}")
-    print(f"Number of ants: {len(data.columns.levels[0])}")
-    print(f"Recording duration: {len(data)/60:.1f} minutes")
-    
-    print("\nProcessing ant trajectories...")
-    start_time = time.time()
-    processed_data = process_ant_data(data)
-    print(f"Processing completed in {(time.time() - start_time)/60:.1f} minutes")
-    
+    # Create processed data directories if they don't exist
+    processed_dir = os.path.join(DATA_DIRECTORY, "processed_data")
+    for subdir in ["behavioral", "kinematic", "social"]:
+        os.makedirs(os.path.join(processed_dir, subdir), exist_ok=True)
+
+    if args.load:
+        print("Loading previously processed data...")
+        try:
+            with open(os.path.join(processed_dir, "behavioral", "processed_data.pkl"), 'rb') as f:
+                processed_data = pickle.load(f)
+            print("Data loaded successfully!")
+        except FileNotFoundError:
+            print("No processed data found. Please run with --save first.")
+            exit(1)
+    else:
+        print("Loading raw data...")
+        if args.debug:
+            print("DEBUG MODE: Processing only first 5 ants and 10000 timesteps")
+        data = load_data(DATA_DIRECTORY, INPUT_FILE, debug=args.debug, debug_timesteps=DEBUG_TIMESTEPS)
+        
+        print("\nData Overview:")
+        print(f"Total timesteps: {len(data):,}")
+        print(f"Number of ants: {len(data.columns.levels[0])}")
+        print(f"Recording duration: {len(data)/60:.1f} minutes")
+        
+        print("\nProcessing ant trajectories...")
+        start_time = time.time()
+        processed_data = process_ant_data(data)
+        print(f"Processing completed in {(time.time() - start_time)/60:.1f} minutes")
+        
+        if args.save:
+            print("\nSaving processed data...")
+            # Save the full processed data
+            with open(os.path.join(processed_dir, "behavioral", "processed_data.pkl"), 'wb') as f:
+                pickle.dump(processed_data, f)
+            
+            # Save specific features to their respective directories
+            for ant_id, ant_data in processed_data.items():
+                # Save kinematic features
+                kinematic_data = {
+                    'velocities': ant_data['trajectory_features'].velocities,
+                    'accelerations': ant_data['trajectory_features'].accelerations,
+                    'angular_velocities': ant_data['trajectory_features'].angular_velocities,
+                    'curvatures': ant_data['trajectory_features'].curvatures
+                }
+                with open(os.path.join(processed_dir, "kinematic", f"ant_{ant_id}_kinematic.pkl"), 'wb') as f:
+                    pickle.dump(kinematic_data, f)
+                
+                # Save behavioral features
+                behavioral_data = {
+                    'stop_segments': ant_data['trajectory_features'].stop_segments,
+                    'move_segments': ant_data['trajectory_features'].move_segments,
+                    'bout_durations': ant_data['trajectory_features'].bout_durations
+                }
+                with open(os.path.join(processed_dir, "behavioral", f"ant_{ant_id}_behavioral.pkl"), 'wb') as f:
+                    pickle.dump(behavioral_data, f)
+                
+                # Save social features
+                with open(os.path.join(processed_dir, "social", f"ant_{ant_id}_social.pkl"), 'wb') as f:
+                    pickle.dump(ant_data['social_features'], f)
+            
+            print("Data saved successfully!")
+
     # --- Analysis code goes here ---
 
     
