@@ -359,13 +359,16 @@ def analyze_colony_clustering(data, eps_mm=10, min_samples=3):
         'labels': []     # Store cluster labels for visualization
     }
     
+    # Get the actual ant IDs from the filtered data
+    ant_ids = sorted(list(set(idx[0] for idx in data.columns)))
+    
     # Analyze each timestep
     for t in tqdm(range(len(data)), desc="Analyzing clustering behaviour"):
         # Get positions of all ants at this timestep
         positions = []
-        ant_ids = []  # Track which ant is at each position
+        tracked_ant_ids = []  # Track which ant is at each position
         
-        for ant_id in data.columns.levels[0]:
+        for ant_id in ant_ids:
             x = data.loc[t, (ant_id, 'x')]
             y = data.loc[t, (ant_id, 'y')]
             if not (np.isnan(x) or np.isnan(y)):
