@@ -9,6 +9,7 @@ import lzma
 import pickle
 import os
 import time
+import json
 import argparse
 from pathlib import Path
 
@@ -389,13 +390,17 @@ def analyze_colony_clustering(data, eps_mm=10, min_samples=3):
         clustering_stats['positions'].append(positions.tolist())
         clustering_stats['labels'].append(labels.tolist())
         
+        # Count unique clusters (excluding noise points labeled as -1)
+        unique_clusters = len(set(labels[labels >= 0]))
+        clustering_stats['n_clusters'].append(unique_clusters)
+        
         # Count ants per cluster
-        if n_clusters > 0:
-            cluster_sizes = [np.sum(labels == i) for i in range(n_clusters)]
+        if unique_clusters > 0:
+            cluster_sizes = [np.sum(labels == i) for i in range(unique_clusters)]
             clustering_stats['cluster_sizes'].append(cluster_sizes)
             
             # Calculate cluster densities (ants per unit area)
-            cluster_areas = [np.pi * (eps_pixels ** 2) for _ in range(n_clusters)]
+            cluster_areas = [np.pi * (eps_pixels ** 2) for _ in range(unique_clusters)]
             densities = [size/area for size, area in zip(cluster_sizes, cluster_areas)]
             clustering_stats['mean_cluster_density'].append(np.mean(densities))
         else:
