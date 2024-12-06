@@ -453,7 +453,7 @@ def load_processed_data(processed_dir):
         # Get list of all ant IDs from the files in behavioural directory
         behavioural_files = [f for f in os.listdir(os.path.join(processed_dir, "behavioural")) 
                            if f.startswith("ant_") and f.endswith("_behavioural.pkl")]
-        ant_ids = [f.split("_")[1] for f in behavioural_files]
+        ant_ids = sorted([f.split("_")[1] for f in behavioural_files])
         
         print(f"Found ant IDs: {ant_ids}")
         
