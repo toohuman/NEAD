@@ -9,16 +9,36 @@ import lzma
 import pickle
 import os
 import time
+import argparse
 from pathlib import Path
 
 DATA_DIRECTORY = "data/2023_2/"
 INPUT_FILE = 'KA050_processed_10cm_5h_20230614.pkl.xz'
 
-def load_data(source_dir, input_file, scale=None, arena_dim=None):
-    """Load data from a compressed pickle file."""
+def load_data(source_dir, input_file, scale=None, arena_dim=None, debug=False, debug_timesteps=10000):
+    """
+    Load data from a compressed pickle file.
+    
+    Args:
+        source_dir: Directory containing the data file
+        input_file: Name of the data file
+        scale: Sampling rate for the data
+        arena_dim: Arena dimensions
+        debug: If True, only load first 5 ants
+        debug_timesteps: Number of timesteps to load in debug mode
+    """
     data = None
     with lzma.open(os.path.join(source_dir, input_file)) as file:
         data = pd.read_pickle(file)
+    
+    if debug:
+        # Select first 5 ants and limit timesteps
+        ant_ids = data.columns.levels[0][:5]
+        data = data.iloc[:debug_timesteps]
+        # Keep only the selected ant columns
+        cols_to_keep = [(ant, coord) for ant in ant_ids for coord in ['x', 'y']]
+        data = data[cols_to_keep]
+    
     return data.iloc[::int(scale)] if scale else data
 
 
@@ -389,14 +409,23 @@ def analyze_colony_clustering(data, eps_mm=10, min_samples=3):
 
 
 if __name__ == "__main__":
-# Constants for biological sanity checks
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Process ant trajectory data')
+    parser.add_argument('--debug', action='store_true', 
+                      help='Run in debug mode (process only first 5 ants and 10000 timesteps)')
+    args = parser.parse_args()
+
+    # Constants for biological sanity checks
     PIXELS_PER_MM = 8.1  # Based on 900px = 100mm arena diameter
     ARENA_CENTER = np.array([450, 450])
     ARENA_RADIUS = 405  # pixels
     MAX_EXPECTED_VELOCITY = 50  # mm/s
+    DEBUG_TIMESTEPS = 10000
     
     print("Loading data...")
-    data = load_data(DATA_DIRECTORY, INPUT_FILE)
+    if args.debug:
+        print("DEBUG MODE: Processing only first 5 ants and 10000 timesteps")
+    data = load_data(DATA_DIRECTORY, INPUT_FILE, debug=args.debug, debug_timesteps=DEBUG_TIMESTEPS)
     
     print("\nData Overview:")
     print(f"Total timesteps: {len(data):,}")
