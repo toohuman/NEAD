@@ -704,3 +704,110 @@ if __name__ == "__main__":
     total_frames = len(n_clusters)
     print(f"\nTemporal patterns:")
     print(f"Percentage of time with clusters present: {100 * clustered_frames / total_frames:.1f}%")
+
+
+
+    def animate_clustering(clustering_stats: Dict[str, List], 
+                           save_path: str = None,
+                           fps: int = 10,
+                           start_frame: int = 0,
+                           num_frames: int = 1000) -> None:
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import matplotlib.animation as animation
+        from matplotlib.colors import LinearSegmentedColormap
+        from typing import Dict, List
+        """
+        Create an animation of ant clustering behaviour over time.
+        
+        Args:
+            clustering_stats: Dictionary containing clustering statistics over time
+                Must include 'positions' and 'labels' lists
+            save_path: Path to save the animation (optional)
+            fps: Frames per second for the animation
+            start_frame: First frame to animate
+            num_frames: Number of frames to animate
+        """
+        # Set up the figure and animation
+        fig, ax = plt.subplots(figsize=(10, 10))
+        
+        # Create a custom colormap for clusters
+        # Using distinct colours for different clusters
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+                '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+        
+        # Function to update the animation at each frame
+        def update(frame):
+            ax.clear()
+            
+            # Get positions and labels for this frame
+            positions = np.array(clustering_stats['positions'][frame + start_frame])
+            labels = np.array(clustering_stats['labels'][frame + start_frame])
+            
+            if len(positions) == 0:
+                return
+            
+            # Plot arena boundary (assuming 900 pixel diameter)
+            circle = plt.Circle((450, 450), 405, fill=False, color='gray', linestyle='--')
+            ax.add_artist(circle)
+            
+            # Plot isolated ants (noise points)
+            noise_points = positions[labels == -1]
+            if len(noise_points) > 0:
+                ax.scatter(noise_points[:, 0], noise_points[:, 1], 
+                        c='gray', marker='o', s=50, alpha=0.5, label='Isolated')
+            
+            # Plot clustered ants
+            unique_clusters = set(labels[labels >= 0])
+            for i, cluster in enumerate(unique_clusters):
+                mask = labels == cluster
+                cluster_points = positions[mask]
+                ax.scatter(cluster_points[:, 0], cluster_points[:, 1],
+                        c=[colors[i % len(colors)]], marker='o', s=50, 
+                        label=f'Cluster {cluster+1}')
+            
+            # Add frame information and statistics
+            ax.text(0.02, 0.98, f'Frame: {frame + start_frame}', 
+                    transform=ax.transAxes, verticalalignment='top')
+            ax.text(0.02, 0.94, f'Total ants: {len(positions)}',
+                    transform=ax.transAxes, verticalalignment='top')
+            ax.text(0.02, 0.90, 
+                    f'Clusters: {clustering_stats["n_clusters"][frame + start_frame]}',
+                    transform=ax.transAxes, verticalalignment='top')
+            ax.text(0.02, 0.86,
+                    f'Isolated ants: {clustering_stats["isolated_ants"][frame + start_frame]}',
+                    transform=ax.transAxes, verticalalignment='top')
+            
+            # Set axis properties
+            ax.set_xlim(0, 900)
+            ax.set_ylim(0, 900)
+            ax.set_aspect('equal')
+            ax.set_title('Ant Clustering Analysis')
+            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            
+            # Add scale bar (100 pixels = 12.35mm)
+            ax.plot([50, 131], [50, 50], 'k-', lw=2)
+            ax.text(90, 70, '10mm', ha='center')
+        
+        # Create the animation
+        anim = animation.FuncAnimation(
+            fig, update,
+            frames=num_frames,
+            interval=1000/fps,  # interval in milliseconds
+            blit=False
+        )
+        
+        # Save animation if path provided
+        if save_path:
+            anim.save(save_path, writer='pillow', fps=fps)
+            plt.close()
+        else:
+            plt.show()
+        
+        return anim
+
+    animate_clustering(clustering_stats, 
+                    save_path='ant_clustering.gif',  # optional
+                    fps=10,
+                    start_frame=0,
+                    num_frames=1000)
