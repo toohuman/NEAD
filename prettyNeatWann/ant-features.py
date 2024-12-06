@@ -561,6 +561,74 @@ if __name__ == "__main__":
         if args.save:
             save_processed_data(processed_data, processed_dir)
     
-    # --- Analysis code goes here ---
-
+    # --- Analysis and Output ---
+    print("\n=== Colony-Level Analysis ===")
     
+    def analyze_movement_patterns(processed_data):
+        """Analyze movement patterns across all ants."""
+        total_ants = len(processed_data)
+        all_move_durations = []
+        all_stop_durations = []
+        all_velocities = []
+        
+        for ant_id, ant_data in processed_data.items():
+            move_durations = ant_data['trajectory_features'].bout_durations['move']
+            stop_durations = ant_data['trajectory_features'].bout_durations['stop']
+            velocities = np.linalg.norm(ant_data['trajectory_features'].velocities, axis=1)
+            
+            all_move_durations.extend(move_durations)
+            all_stop_durations.extend(stop_durations)
+            all_velocities.extend(velocities[~np.isnan(velocities)])
+        
+        return {
+            'total_ants': total_ants,
+            'avg_move_duration': np.mean(all_move_durations),
+            'avg_stop_duration': np.mean(all_stop_durations),
+            'avg_velocity': np.mean(all_velocities),
+            'max_velocity': np.max(all_velocities),
+            'movement_ratio': sum(all_move_durations) / (sum(all_move_durations) + sum(all_stop_durations))
+        }
+
+    def analyze_social_interactions(processed_data):
+        """Analyze social interaction patterns."""
+        all_nn_distances = []
+        
+        for ant_id, ant_data in processed_data.items():
+            for timestep in ant_data['social_features']:
+                if timestep and 'nn_stats' in timestep:
+                    nn_stats = timestep['nn_stats']
+                    if 'nn_dist_1' in nn_stats:  # First nearest neighbor
+                        all_nn_distances.append(nn_stats['nn_dist_1'])
+        
+        return {
+            'avg_nn_distance': np.mean(all_nn_distances),
+            'min_nn_distance': np.min(all_nn_distances),
+            'max_nn_distance': np.max(all_nn_distances)
+        }
+
+    # Perform analyses
+    movement_stats = analyze_movement_patterns(processed_data)
+    social_stats = analyze_social_interactions(processed_data)
+
+    # Print results in a formatted way
+    print("\nMovement Analysis:")
+    print(f"{'='*50}")
+    print(f"Total ants analyzed: {movement_stats['total_ants']}")
+    print(f"Average movement bout duration: {movement_stats['avg_move_duration']:.2f} seconds")
+    print(f"Average stop bout duration: {movement_stats['avg_stop_duration']:.2f} seconds")
+    print(f"Average velocity: {movement_stats['avg_velocity']:.2f} pixels/second")
+    print(f"Maximum velocity: {movement_stats['max_velocity']:.2f} pixels/second")
+    print(f"Movement ratio: {movement_stats['movement_ratio']*100:.1f}% of time spent moving")
+
+    print("\nSocial Interaction Analysis:")
+    print(f"{'='*50}")
+    print(f"Average nearest neighbor distance: {social_stats['avg_nn_distance']:.2f} pixels")
+    print(f"Minimum nearest neighbor distance: {social_stats['min_nn_distance']:.2f} pixels")
+    print(f"Maximum nearest neighbor distance: {social_stats['max_nn_distance']:.2f} pixels")
+
+    # Convert some metrics to biological units
+    print("\nBiological Metrics:")
+    print(f"{'='*50}")
+    print(f"Average velocity: {movement_stats['avg_velocity']/PIXELS_PER_MM:.2f} mm/second")
+    print(f"Maximum velocity: {movement_stats['max_velocity']/PIXELS_PER_MM:.2f} mm/second")
+    print(f"Average nearest neighbor distance: {social_stats['avg_nn_distance']/PIXELS_PER_MM:.2f} mm")
