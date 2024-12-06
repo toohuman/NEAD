@@ -315,6 +315,79 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
     return results
 
 
+def analyze_colony_clustering(data, eps_mm=10, min_samples=3):
+    """
+    Analyze clustering behaviour of the colony over time using DBSCAN.
+    
+    Args:
+        data: DataFrame with MultiIndex columns (ant_id, coordinate)
+        eps_mm: Clustering radius in millimeters
+        min_samples: Minimum samples to form a cluster
+    
+    Returns:
+        Dictionary containing clustering statistics over time
+    """
+    from sklearn.cluster import DBSCAN
+    
+    PIXELS_PER_MM = 8.1
+    eps_pixels = eps_mm * PIXELS_PER_MM
+    
+    clustering_stats = {
+        'n_clusters': [],
+        'cluster_sizes': [],
+        'isolated_ants': [],
+        'mean_cluster_density': [],
+        'positions': [],  # Store positions for visualization
+        'labels': []     # Store cluster labels for visualization
+    }
+    
+    # Analyze each timestep
+    for t in tqdm(range(len(data)), desc="Analyzing clustering behaviour"):
+        # Get positions of all ants at this timestep
+        positions = []
+        ant_ids = []  # Track which ant is at each position
+        
+        for ant_id in data.columns.levels[0]:
+            x = data.loc[t, (ant_id, 'x')]
+            y = data.loc[t, (ant_id, 'y')]
+            if not (np.isnan(x) or np.isnan(y)):
+                positions.append([x, y])
+                ant_ids.append(ant_id)
+        
+        if len(positions) < min_samples:
+            clustering_stats['positions'].append([])
+            clustering_stats['labels'].append([])
+            continue
+            
+        positions = np.array(positions)
+        
+        # Perform DBSCAN clustering
+        clustering = DBSCAN(eps=eps_pixels, min_samples=min_samples).fit(positions)
+        labels = clustering.labels_
+        
+        # Store positions and labels for visualization
+        clustering_stats['positions'].append(positions.tolist())
+        clustering_stats['labels'].append(labels.tolist())
+        
+        # Count ants per cluster
+        if n_clusters > 0:
+            cluster_sizes = [np.sum(labels == i) for i in range(n_clusters)]
+            clustering_stats['cluster_sizes'].append(cluster_sizes)
+            
+            # Calculate cluster densities (ants per unit area)
+            cluster_areas = [np.pi * (eps_pixels ** 2) for _ in range(n_clusters)]
+            densities = [size/area for size, area in zip(cluster_sizes, cluster_areas)]
+            clustering_stats['mean_cluster_density'].append(np.mean(densities))
+        else:
+            clustering_stats['cluster_sizes'].append([])
+            clustering_stats['mean_cluster_density'].append(0)
+        
+        # Count isolated ants
+        clustering_stats['isolated_ants'].append(np.sum(labels == -1))
+    
+    return clustering_stats
+
+
 if __name__ == "__main__":
 # Constants for biological sanity checks
     PIXELS_PER_MM = 8.1  # Based on 900px = 100mm arena diameter
@@ -413,3 +486,45 @@ if __name__ == "__main__":
     high_velocity_count = np.sum(np.array(colony_velocities) > MAX_EXPECTED_VELOCITY)
     print(f"  Suspicious velocities: {100 * high_velocity_count/len(colony_velocities):.2f}%")
     print(f"  Missing position data: {100 * np.sum(np.isnan(data.values))/data.size:.2f}%")
+
+    print("\n=== Clustering Analysis ===")
+    clustering_stats = analyze_colony_clustering(data)
+    
+    # Save clustering data for visualization
+    visualization_data = {
+        'positions': clustering_stats['positions'],
+        'labels': clustering_stats['labels']
+    }
+    
+    with open('clustering_data.json', 'w') as f:
+        json.dump(visualization_data, f)
+    
+    # Calculate summary statistics
+    clusters_present = np.array(clustering_stats['n_clusters'])
+    clusters_present = clusters_present[clusters_present > 0]  # Only times with clusters
+    
+    print("\nClustering Behaviour:")
+    print(f"Timesteps with clusters: {100 * len(clusters_present)/len(clustering_stats['n_clusters']):.1f}%")
+    if len(clusters_present) > 0:
+        print(f"When clusters present:")
+        print(f"  Mean number of clusters: {np.mean(clusters_present):.1f} ± {np.std(clusters_present):.1f}")
+        
+        # Analyze cluster sizes
+        all_sizes = [size for sizes in clustering_stats['cluster_sizes'] for size in sizes]
+        if all_sizes:
+            print(f"  Mean cluster size: {np.mean(all_sizes):.1f} ants")
+            print(f"  Cluster size range: {np.min(all_sizes)} - {np.max(all_sizes)} ants")
+        
+        # Analyze isolation
+        isolated = np.array(clustering_stats['isolated_ants'])
+        print(f"\nIsolation patterns:")
+        print(f"  Mean isolated ants: {np.mean(isolated):.1f} ± {np.std(isolated):.1f}")
+        print(f"  Proportion of isolated ants: {100 * np.mean(isolated)/len(data.columns.levels[0]):.1f}%")
+        
+        # Analyze cluster density
+        densities = np.array(clustering_stats['mean_cluster_density'])
+        densities = densities[densities > 0]
+        if len(densities) > 0:
+            print(f"\nCluster density:")
+            print(f"  Mean density: {np.mean(densities):.2f} ants/mm²")
+            print(f"  Density range: {np.min(densities):.2f} - {np.max(densities):.2f} ants/mm²")
