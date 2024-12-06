@@ -33,9 +33,10 @@ def load_data(source_dir, input_file, scale=None, arena_dim=None, debug=False, d
         data = pd.read_pickle(file)
     
     if debug:
-        # Select first 5 ants and limit timesteps
-        ant_ids = data.columns.levels[0][:5]
+        # Limit timesteps first
         data = data.iloc[:debug_timesteps]
+        # Then select first 5 ants
+        ant_ids = sorted(list(data.columns.levels[0]))[:5]
         # Keep only the selected ant columns
         cols_to_keep = [(ant, coord) for ant in ant_ids for coord in ['x', 'y']]
         data = data[cols_to_keep]
@@ -263,6 +264,9 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
     results = {}
     ant_ids = data.columns.levels[0]
     n_timesteps = len(data)
+    
+    # Get sorted list of ant IDs
+    ant_ids = sorted(list(data.columns.levels[0]))
     
     # Pre-allocate arrays for positions
     positions = np.zeros((len(ant_ids), n_timesteps, 2))
