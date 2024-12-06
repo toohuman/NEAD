@@ -536,7 +536,7 @@ if __name__ == "__main__":
     
     # Create processed data directories if they don't exist
     processed_dir = os.path.join(DATA_DIRECTORY, "processed_data")
-    for subdir in ["behavioural", "kinematic", "social"]:
+    for subdir in ["behavioural", "kinematic", "social", "cluster"]:
         os.makedirs(os.path.join(processed_dir, subdir), exist_ok=True)
 
     if args.load:
