@@ -336,7 +336,7 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
 
 def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
     """
-    analyse clustering behaviour of the colony over time using DBSCAN.
+    Analyse clustering behaviour of the colony over time using DBSCAN.
     
     Args:
         data: DataFrame with MultiIndex columns (ant_id, coordinate)
@@ -363,20 +363,24 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
     # Get the actual ant IDs from the filtered data
     ant_ids = sorted(list(set(idx[0] for idx in data.columns)))
     
-    # analyse each timestep
+    # Analyse each timestep
     for t in tqdm(range(len(data)), desc="Analyzing clustering behaviour"):
         # Get positions of all ants at this timestep
         positions = []
-        tracked_ant_ids = []  # Track which ant is at each position
+        tracked_positions = []  # Track which positions are valid
         
         for ant_id in ant_ids:
             x = data.loc[t, (ant_id, 'x')]
             y = data.loc[t, (ant_id, 'y')]
             if not (np.isnan(x) or np.isnan(y)):
                 positions.append([x, y])
-                ant_ids.append(ant_id)
+                tracked_positions.append(ant_id)
         
         if len(positions) < min_samples:
+            clustering_stats['n_clusters'].append(0)
+            clustering_stats['cluster_sizes'].append([])
+            clustering_stats['mean_cluster_density'].append(0)
+            clustering_stats['isolated_ants'].append(len(positions))
             clustering_stats['positions'].append([])
             clustering_stats['labels'].append([])
             continue
@@ -671,3 +675,32 @@ if __name__ == "__main__":
     print(f"Average velocity: {movement_stats['avg_velocity']/PIXELS_PER_MM:.2f} mm/second")
     print(f"Maximum velocity: {movement_stats['max_velocity']/PIXELS_PER_MM:.2f} mm/second")
     print(f"Average nearest neighbor distance: {social_stats['avg_nn_distance']/PIXELS_PER_MM:.2f} mm")
+
+    print("\nClustering Analysis:")
+    print(f"{'='*50}")
+    
+    # Calculate and print clustering statistics
+    n_clusters = np.array(clustering_stats['n_clusters'])
+    cluster_sizes = clustering_stats['cluster_sizes']
+    isolated_ants = np.array(clustering_stats['isolated_ants'])
+    
+    # Overall clustering statistics
+    print(f"Average number of clusters: {np.mean(n_clusters):.2f}")
+    print(f"Maximum number of clusters: {np.max(n_clusters)}")
+    
+    # Calculate average cluster size (excluding empty timesteps)
+    non_empty_sizes = [sizes for sizes in cluster_sizes if sizes]
+    if non_empty_sizes:
+        all_sizes = [size for sizes in non_empty_sizes for size in sizes]
+        print(f"Average cluster size: {np.mean(all_sizes):.2f} ants")
+        print(f"Maximum cluster size: {np.max(all_sizes)} ants")
+    
+    # Isolation statistics
+    print(f"Average number of isolated ants: {np.mean(isolated_ants):.2f}")
+    print(f"Percentage of ants typically isolated: {100 * np.mean(isolated_ants) / movement_stats['total_ants']:.1f}%")
+    
+    # Time-based statistics
+    clustered_frames = np.sum(n_clusters > 0)
+    total_frames = len(n_clusters)
+    print(f"\nTemporal patterns:")
+    print(f"Percentage of time with clusters present: {100 * clustered_frames / total_frames:.1f}%")
