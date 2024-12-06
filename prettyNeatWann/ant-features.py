@@ -510,7 +510,6 @@ if __name__ == "__main__":
     ARENA_CENTER = np.array([450, 450])
     ARENA_RADIUS = 405  # pixels
     MAX_EXPECTED_VELOCITY = 50  # mm/s
-    DEBUG_TIMESTEPS = 10000
     
     # Create processed data directories if they don't exist
     processed_dir = os.path.join(DATA_DIRECTORY, "processed_data")
