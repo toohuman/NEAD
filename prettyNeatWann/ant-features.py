@@ -417,10 +417,6 @@ def analyze_colony_clustering(data, eps_mm=10, min_samples=3):
 def save_processed_data(processed_data, processed_dir):
     """Save processed ant data to directory structure."""
     print("\nSaving processed data...")
-    # Save the full processed data
-    with open(os.path.join(processed_dir, "behavioural", "processed_data.pkl"), 'wb') as f:
-        pickle.dump(processed_data, f)
-    
     # Save specific features to their respective directories
     for ant_id, ant_data in processed_data.items():
         # Save kinematic features
@@ -453,13 +449,14 @@ def load_processed_data(processed_dir):
     print("Loading previously processed data...")
     processed_data = {}
     
-    # Load the full processed data first
     try:
-        with open(os.path.join(processed_dir, "behavioural", "processed_data.pkl"), 'rb') as f:
-            processed_data = pickle.load(f)
-            
-        # Verify and load individual feature files
-        for ant_id in processed_data.keys():
+        # Get list of all ant IDs from the files in behavioural directory
+        behavioural_files = [f for f in os.listdir(os.path.join(processed_dir, "behavioural")) 
+                           if f.startswith("ant_") and f.endswith("_behavioural.pkl")]
+        ant_ids = [f.split("_")[1] for f in behavioural_files]
+        
+        # Load data for each ant
+        for ant_id in ant_ids:
             # Load and verify kinematic features
             with open(os.path.join(processed_dir, "kinematic", f"ant_{ant_id}_kinematic.pkl"), 'rb') as f:
                 kinematic_data = pickle.load(f)
