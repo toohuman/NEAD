@@ -60,7 +60,7 @@ class TrajectoryFeatures:
 class AntFeatureExtractor:
     """Extract behavioural features from ant trajectory data using vectorized operations."""
     
-    def __init__(self, fps: float = 60.0, velocity_threshold: float = 0.5, max_position_change: float = 10.0):
+    def __init__(self, fps: float = 60.0, velocity_threshold: float = 0.5, max_position_change: float = 10.0, max_velocity_pixels: float = 100.0):
         """
         Initialize the feature extractor.
         
@@ -68,10 +68,12 @@ class AntFeatureExtractor:
             fps: Frame rate of the data
             velocity_threshold: Threshold for determining stop/move states (units/second)
             max_position_change: Maximum allowable position change between consecutive frames (units)
+            max_velocity_pixels: Maximum allowable velocity in pixels/second
         """
         self.dt = 1.0 / fps
         self.velocity_threshold = velocity_threshold
         self.max_position_change = max_position_change
+        self.max_velocity_pixels = max_velocity_pixels
     
     def extract_features(self, x: np.ndarray, y: np.ndarray) -> TrajectoryFeatures:
         """
@@ -116,24 +118,26 @@ class AntFeatureExtractor:
         # Compute velocities
         dx = np.gradient(x_clean, self.dt)
         dy = np.gradient(y_clean, self.dt)
-        velocity_magnitude = np.sqrt(dx**2 + dy**2)
+        # ---
+        # velocity_magnitude = np.sqrt(dx**2 + dy**2)
 
-        # Identify large velocity jumps
-        large_velocity_jumps = velocity_magnitude > self.max_velocity_pixels
+        # # Identify large velocity jumps
+        # large_velocity_jumps = velocity_magnitude > self.max_velocity_pixels
 
-        # Debug printing for large velocity jumps
-        for idx in np.where(large_velocity_jumps)[0]:
-            start_idx = max(0, idx - 5)
-            end_idx = min(len(x_clean), idx + 6)
-            print(f"\nLarge velocity jump detected at index {idx}:")
-            print(f"Velocity: {velocity_magnitude[idx]:.2f} pixels/second")
-            print("Position data around the jump:")
-            for i in range(start_idx, end_idx):
-                print(f"Index {i}: x = {x_clean[i]:.2f}, y = {y_clean[i]:.2f}")
+        # # Debug printing for large velocity jumps
+        # for idx in np.where(large_velocity_jumps)[0]:
+        #     start_idx = max(0, idx - 5)
+        #     end_idx = min(len(x_clean), idx + 6)
+        #     print(f"\nLarge velocity jump detected at index {idx}:")
+        #     print(f"Velocity: {velocity_magnitude[idx]:.2f} pixels/second")
+        #     print("Position data around the jump:")
+        #     for i in range(start_idx, end_idx):
+        #         print(f"Index {i}: x = {x_clean[i]:.2f}, y = {y_clean[i]:.2f}")
 
-        # Apply velocity threshold
-        dx[large_velocity_jumps] = np.nan
-        dy[large_velocity_jumps] = np.nan
+        # # Apply velocity threshold
+        # dx[large_velocity_jumps] = np.nan
+        # dy[large_velocity_jumps] = np.nan
+        # ---
 
         velocities[:, 0] = dx
         velocities[:, 1] = dy
@@ -363,7 +367,7 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
     """
     from sklearn.cluster import DBSCAN
     
-    PIXELS_PER_MM = 8.1
+    PIXELS_PER_MM = 8.64
     eps_pixels = eps_mm * PIXELS_PER_MM
     
     clustering_stats = {
