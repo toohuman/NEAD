@@ -21,6 +21,7 @@ MAX_EXPECTED_VELOCITY = 50  # mm/s
 
 DATA_DIRECTORY = "data/2023_2/"
 INPUT_FILE = 'KA050_processed_10cm_5h_20230614.pkl.xz'
+SCALE = 2
 
 def load_data(source_dir, input_file, scale=None, arena_dim=None, debug=False, debug_ants=5, debug_timesteps=10000):
     """
@@ -71,14 +72,16 @@ class AntFeatureExtractor:
         Initialize the feature extractor.
         
         Args:
-            fps: Frame rate of the data
+            fps: Frame rate of the data (will be adjusted by SCALE if provided)
             velocity_threshold: Threshold for determining stop/move states (units/second)
             max_position_change: Maximum allowable position change between consecutive frames (units)
             max_velocity_pixels: Maximum allowable velocity in pixels/second
         """
-        self.dt = 1.0 / fps
+        # Adjust fps if SCALE is provided
+        self.fps = fps / SCALE if SCALE else fps
+        self.dt = 1.0 / self.fps
         self.velocity_threshold = velocity_threshold
-        self.max_position_change = max_position_change
+        self.max_position_change = max_position_change * (SCALE if SCALE else 1)  # Scale position change threshold
         self.max_velocity_pixels = max_velocity_pixels
     
     def extract_features(self, x: np.ndarray, y: np.ndarray) -> TrajectoryFeatures:
@@ -286,7 +289,11 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
     Returns:
         Dictionary mapping ant IDs to their extracted features
     """
-    feature_extractor = AntFeatureExtractor()
+    # Adjust fps based on SCALE
+    base_fps = 60.0
+    effective_fps = base_fps / SCALE if SCALE else base_fps
+    
+    feature_extractor = AntFeatureExtractor(fps=effective_fps)
     social_extractor = SocialContextExtractor()
     
     results = {}
@@ -602,6 +609,10 @@ def animate_clustering(clustering_stats: Dict[str, List],
     import matplotlib.animation as animation
     from matplotlib.colors import LinearSegmentedColormap
     
+    # Adjust time calculations based on SCALE
+    base_fps = 60.0
+    effective_fps = base_fps / SCALE if SCALE else base_fps
+
     # Calculate frame sampling
     total_frames = len(clustering_stats['positions'])
     end_frame = end_frame if end_frame is not None else total_frames
@@ -666,7 +677,7 @@ def animate_clustering(clustering_stats: Dict[str, List],
                     label=f'Cluster {cluster+1}')
         
         # Add information and statistics
-        minutes_elapsed = (frame / 60) / 60  # Convert frames to minutes
+        minutes_elapsed = (frame / effective_fps) / 60  # Convert frames to minutes
         hours_elapsed = minutes_elapsed / 60  # Convert minutes to hours
         
         ax.text(0.02, 0.98, f'Time: {hours_elapsed:.1f} hours', 
