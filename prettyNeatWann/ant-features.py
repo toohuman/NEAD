@@ -375,7 +375,6 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
     """
     from sklearn.cluster import DBSCAN
     
-    PIXELS_PER_MM = 8.64
     eps_pixels = eps_mm * PIXELS_PER_MM
     
     clustering_stats = {
@@ -609,7 +608,7 @@ if __name__ == "__main__":
         print("\nData Overview:")
         print(f"Total timesteps: {len(data):,}")
         print(f"Number of ants: {len(data.columns.levels[0])}")
-        print(f"Recording duration: {len(data)/60:.1f} minutes")
+        print(f"Recording duration: {len(data)/(60*60):.1f} minutes")
         
         print("\nProcessing ant trajectories...")
         start_time = time.time()
@@ -824,10 +823,12 @@ if __name__ == "__main__":
             ax.set_aspect('equal')
             ax.set_title('Ant Clustering Analysis (Time-Lapsed)')
             
-            # Add scale bar (100 pixels = 11.57mm)
-            ax.plot([50, 131], [50, 50], 'k-', lw=2)
-            ax.text(90, 70, '10mm', ha='center')
-            
+            # Add scale bar (10mm = 86.4 pixels)
+            scale_start = 50
+            scale_end = scale_start + (10 * 8.64)  # 10mm * 8.64 pixels/mm
+            ax.plot([scale_start, scale_end], [50, 50], 'k-', lw=2)
+            ax.text(scale_start + (scale_end - scale_start)/2, 70, '10mm', ha='center')
+                
             # Add legend outside the plot
             ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         
@@ -851,6 +852,6 @@ if __name__ == "__main__":
 
     animate_clustering(clustering_stats, 
                     save_path='ant_clustering.gif',  # optional
-                    fps=10,
-                    start_frame=0,
-                    num_frames=1000)
+                    target_duration=120,  # 2 minutes
+                    fps=30
+    )
