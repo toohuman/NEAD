@@ -13,6 +13,12 @@ import json
 import argparse
 from pathlib import Path
 
+# Constants for biological sanity checks
+PIXELS_PER_MM = 8.64  # Based on 864px = 100mm arena diameter (accounting for 2% margin)
+ARENA_CENTER = np.array([900/2.0, 900/2.0])
+ARENA_RADIUS = min(900, 900)/2.0 - min(900, 900) * 0.02
+MAX_EXPECTED_VELOCITY = 50  # mm/s
+
 DATA_DIRECTORY = "data/2023_2/"
 INPUT_FILE = 'KA050_processed_10cm_5h_20230614.pkl.xz'
 
@@ -60,7 +66,7 @@ class TrajectoryFeatures:
 class AntFeatureExtractor:
     """Extract behavioural features from ant trajectory data using vectorized operations."""
     
-    def __init__(self, fps: float = 60.0, velocity_threshold: float = 0.5, max_position_change: float = 10.0, max_velocity_pixels: float = 100.0):
+    def __init__(self, fps: float = 60.0, velocity_threshold: float = 0.5, max_position_change: float = 10.0, max_velocity_pixels: float = 100 * PIXELS_PER_MM):
         """
         Initialize the feature extractor.
         
@@ -118,52 +124,54 @@ class AntFeatureExtractor:
         # Compute velocities
         dx = np.gradient(x_clean, self.dt)
         dy = np.gradient(y_clean, self.dt)
-        # ---
-        # velocity_magnitude = np.sqrt(dx**2 + dy**2)
-
-        # # Identify large velocity jumps
-        # large_velocity_jumps = velocity_magnitude > self.max_velocity_pixels
-
-        # # Debug printing for large velocity jumps
-        # for idx in np.where(large_velocity_jumps)[0]:
-        #     start_idx = max(0, idx - 5)
-        #     end_idx = min(len(x_clean), idx + 6)
-        #     print(f"\nLarge velocity jump detected at index {idx}:")
-        #     print(f"Velocity: {velocity_magnitude[idx]:.2f} pixels/second")
-        #     print("Position data around the jump:")
-        #     for i in range(start_idx, end_idx):
-        #         print(f"Index {i}: x = {x_clean[i]:.2f}, y = {y_clean[i]:.2f}")
-
-        # # Apply velocity threshold
-        # dx[large_velocity_jumps] = np.nan
-        # dy[large_velocity_jumps] = np.nan
-        # ---
-
+        
+        # Calculate velocity magnitude and identify unrealistic velocities
+        velocity_magnitude = np.sqrt(dx**2 + dy**2)
+        large_velocity_jumps = velocity_magnitude > self.max_velocity_pixels
+        
+        # Replace unrealistic velocities with NaN
+        dx[large_velocity_jumps] = np.nan
+        dy[large_velocity_jumps] = np.nan
+        
+        # Optional: Log instances of large velocity jumps for debugging
+        # if np.any(large_velocity_jumps):
+        #     jump_locations = np.where(large_velocity_jumps)[0]
+        #     for idx in jump_locations:
+        #         start_idx = max(0, idx - 2)
+        #         end_idx = min(len(x_clean), idx + 3)
+        #         print(f"\nLarge velocity detected at index {idx}:")
+        #         print(f"Velocity: {velocity_magnitude[idx]:.2f} pixels/second")
+        #         print("Position data around the jump:")
+        #         for i in range(start_idx, end_idx):
+        #             print(f"Index {i}: x = {x_clean[i]:.2f}, y = {y_clean[i]:.2f}")
+        
         velocities[:, 0] = dx
         velocities[:, 1] = dy
-
-        # Recompute velocity_mag after filtering
+        
+        # Recompute velocity magnitude after filtering
         velocity_mag = np.sqrt(dx**2 + dy**2)
         
-        # Compute accelerations
-        accelerations[:, 0] = np.gradient(dx, self.dt)
-        accelerations[:, 1] = np.gradient(dy, self.dt)
+        # Compute accelerations (using masked arrays to handle NaN values)
+        masked_dx = np.ma.masked_invalid(dx)
+        masked_dy = np.ma.masked_invalid(dy)
+        accelerations[:, 0] = np.gradient(masked_dx, self.dt)
+        accelerations[:, 1] = np.gradient(masked_dy, self.dt)
         
-        # Compute angular velocity
-        angles = np.arctan2(dy, dx)
-        angular_velocities = np.gradient(np.unwrap(angles), self.dt)
+        # Compute angular velocity (accounting for NaN values)
+        angles = np.arctan2(masked_dy, masked_dx)
+        angular_velocities = np.gradient(np.ma.masked_invalid(np.unwrap(angles)), self.dt)
         
-        # Compute curvature
-        ddx = np.gradient(dx, self.dt)
-        ddy = np.gradient(dy, self.dt)
-        denominator = (dx * dx + dy * dy) ** 1.5
-        valid_denom = denominator > 1e-10
+        # Compute curvature (handling NaN values)
+        ddx = np.gradient(masked_dx, self.dt)
+        ddy = np.gradient(masked_dy, self.dt)
+        denominator = (masked_dx * masked_dx + masked_dy * masked_dy) ** 1.5
+        valid_denom = ~denominator.mask & (denominator > 1e-10)
         curvatures[valid_denom] = np.abs(
-            dx[valid_denom] * ddy[valid_denom] - 
-            dy[valid_denom] * ddx[valid_denom]
+            masked_dx[valid_denom] * ddy[valid_denom] - 
+            masked_dy[valid_denom] * ddx[valid_denom]
         ) / denominator[valid_denom]
         
-        # Identify movement bouts more efficiently
+        # Identify movement bouts using filtered velocity
         is_moving = velocity_mag > self.velocity_threshold
         state_changes = np.diff(is_moving.astype(int))
         move_starts = np.where(state_changes == 1)[0] + 1
@@ -582,12 +590,6 @@ if __name__ == "__main__":
     parser.add_argument('--load', action='store_true',
                       help='Load previously processed data instead of processing raw data')
     args = parser.parse_args()
-
-    # Constants for biological sanity checks
-    PIXELS_PER_MM = 8.64  # Based on 864px = 100mm arena diameter (accounting for 2% margin)
-    ARENA_CENTER = np.array([900/2.0, 900/2.0])
-    ARENA_RADIUS = min(900, 900)/2.0 - min(900, 900) * 0.02
-    MAX_EXPECTED_VELOCITY = 50  # mm/s
     
     # Create processed data directories if they don't exist
     processed_dir = os.path.join(DATA_DIRECTORY, "processed_data")
@@ -727,55 +729,71 @@ if __name__ == "__main__":
 
 
     def animate_clustering(clustering_stats: Dict[str, List], 
-                           save_path: str = None,
-                           fps: int = 10,
-                           start_frame: int = 0,
-                           num_frames: int = 1000,
-                           arena_radius: float = ARENA_RADIUS) -> None:
+                        save_path: str = None,
+                        target_duration: float = 120.0,  # Target duration in seconds
+                        fps: int = 30,
+                        arena_radius: float = ARENA_RADIUS) -> None:
+        """
+        Create a time-lapsed animation of ant clustering behaviour.
+        
+        Args:
+            clustering_stats: Dictionary containing clustering statistics over time
+            save_path: Path to save the animation (optional)
+            target_duration: Desired duration of animation in seconds
+            fps: Frames per second for the output animation
+            arena_radius: Radius of the arena in pixels
+        """
         import numpy as np
         import matplotlib.pyplot as plt
         import matplotlib.animation as animation
         from matplotlib.colors import LinearSegmentedColormap
-        from typing import Dict, List
-        """
-        Create an animation of ant clustering behaviour over time.
         
-        Args:
-            clustering_stats: Dictionary containing clustering statistics over time
-                Must include 'positions' and 'labels' lists
-            save_path: Path to save the animation (optional)
-            fps: Frames per second for the animation
-            start_frame: First frame to animate
-            num_frames: Number of frames to animate
-        """
+        # Calculate frame sampling
+        total_frames = len(clustering_stats['positions'])
+        total_output_frames = int(target_duration * fps)
+        frame_step = max(1, total_frames // total_output_frames)
+        sampled_frames = range(0, total_frames, frame_step)
+        
+        # Print animation details
+        print(f"Total frames in data: {total_frames}")
+        print(f"Frame sampling rate: {frame_step}")
+        print(f"Output frames: {len(sampled_frames)}")
+        print(f"Estimated duration: {len(sampled_frames)/fps:.1f} seconds")
+        print(f"Time compression: {total_frames/(len(sampled_frames)*1/fps):.1f}x speed")
+        
         # Set up the figure and animation
         fig, ax = plt.subplots(figsize=(10, 10))
         
         # Create a custom colormap for clusters
-        # Using distinct colours for different clusters
         colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
                 '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
         
-        # Function to update the animation at each frame
-        def update(frame):
+        # Add timestamp text
+        timestamp_text = ax.text(0.02, 0.82, '', transform=ax.transAxes, 
+                            verticalalignment='top', fontsize=10)
+        
+        def update(frame_idx):
             ax.clear()
+            frame = sampled_frames[frame_idx]
             
             # Get positions and labels for this frame
-            positions = np.array(clustering_stats['positions'][frame + start_frame])
-            labels = np.array(clustering_stats['labels'][frame + start_frame])
+            positions = np.array(clustering_stats['positions'][frame])
+            labels = np.array(clustering_stats['labels'][frame])
             
             if len(positions) == 0:
                 return
             
             # Plot arena boundary
-            circle = plt.Circle((450, 450), arena_radius, fill=False, color='gray', linestyle='--')
+            circle = plt.Circle((450, 450), arena_radius, fill=False, 
+                            color='gray', linestyle='--')
             ax.add_artist(circle)
             
             # Plot isolated ants (noise points)
             noise_points = positions[labels == -1]
             if len(noise_points) > 0:
                 ax.scatter(noise_points[:, 0], noise_points[:, 1], 
-                        c='gray', marker='o', s=50, alpha=0.5, label='Isolated')
+                        c='gray', marker='o', s=50, alpha=0.5, 
+                        label='Isolated')
             
             # Plot clustered ants
             unique_clusters = set(labels[labels >= 0])
@@ -786,40 +804,45 @@ if __name__ == "__main__":
                         c=[colors[i % len(colors)]], marker='o', s=50, 
                         label=f'Cluster {cluster+1}')
             
-            # Add frame information and statistics
-            ax.text(0.02, 0.98, f'Frame: {frame + start_frame}', 
+            # Add information and statistics
+            minutes_elapsed = (frame / 60) / 60  # Convert frames to minutes
+            hours_elapsed = minutes_elapsed / 60  # Convert minutes to hours
+            
+            ax.text(0.02, 0.98, f'Time: {hours_elapsed:.1f} hours', 
                     transform=ax.transAxes, verticalalignment='top')
-            ax.text(0.02, 0.94, f'Total ants: {len(positions)}',
+            ax.text(0.02, 0.94, f'Frame: {frame:,}',
                     transform=ax.transAxes, verticalalignment='top')
-            ax.text(0.02, 0.90, 
-                    f'Clusters: {clustering_stats["n_clusters"][frame + start_frame]}',
+            ax.text(0.02, 0.90, f'Total ants: {len(positions)}',
                     transform=ax.transAxes, verticalalignment='top')
-            ax.text(0.02, 0.86,
-                    f'Isolated ants: {clustering_stats["isolated_ants"][frame + start_frame]}',
+            ax.text(0.02, 0.86, 
+                    f'Clusters: {clustering_stats["n_clusters"][frame]}',
                     transform=ax.transAxes, verticalalignment='top')
             
             # Set axis properties
             ax.set_xlim(0, 900)
             ax.set_ylim(0, 900)
             ax.set_aspect('equal')
-            ax.set_title('Ant Clustering Analysis')
-            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            ax.set_title('Ant Clustering Analysis (Time-Lapsed)')
             
-            # Add scale bar (100 pixels = 12.35mm)
+            # Add scale bar (100 pixels = 11.57mm)
             ax.plot([50, 131], [50, 50], 'k-', lw=2)
             ax.text(90, 70, '10mm', ha='center')
+            
+            # Add legend outside the plot
+            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         
         # Create the animation
         anim = animation.FuncAnimation(
             fig, update,
-            frames=num_frames,
+            frames=len(sampled_frames),
             interval=1000/fps,  # interval in milliseconds
             blit=False
         )
         
         # Save animation if path provided
         if save_path:
-            anim.save(save_path, writer='pillow', fps=fps)
+            writer = animation.PillowWriter(fps=fps)
+            anim.save(save_path, writer=writer)
             plt.close()
         else:
             plt.show()
