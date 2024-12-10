@@ -368,14 +368,15 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
     return results
 
 
-def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
+def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_distance=50):
     """
-    Analyse clustering behaviour of the colony over time using DBSCAN.
+    Analyse clustering behaviour of the colony over time using DBSCAN with consistent cluster tracking.
     
     Args:
         data: DataFrame with MultiIndex columns (ant_id, coordinate)
         eps_mm: Clustering radius in millimeters
         min_samples: Minimum samples to form a cluster
+        max_centroid_distance: Maximum distance between centroids to consider it the same cluster
     
     Returns:
         Dictionary containing clustering statistics over time
@@ -389,8 +390,10 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
         'cluster_sizes': [],
         'isolated_ants': [],
         'mean_cluster_density': [],
-        'positions': [],  # Store positions for visualization
-        'labels': []     # Store cluster labels for visualization
+        'positions': [],
+        'labels': [],
+        'cluster_ids': [],  # Store consistent cluster IDs
+        'centroids': []     # Store cluster centroids
     }
     
     # Get the actual ant IDs from the filtered data
@@ -651,9 +654,9 @@ def animate_clustering(clustering_stats: Dict[str, List],
         ax.clear()
         frame = sampled_frames[frame_idx]
         
-        # Get positions and labels for this frame
         positions = np.array(clustering_stats['positions'][frame])
         labels = np.array(clustering_stats['labels'][frame])
+        cluster_ids = clustering_stats['cluster_ids'][frame]
         
         if len(positions) == 0:
             return
@@ -663,21 +666,21 @@ def animate_clustering(clustering_stats: Dict[str, List],
                         color='gray', linestyle='--')
         ax.add_artist(circle)
         
-        # Plot isolated ants (noise points)
+        # Plot isolated ants
         noise_points = positions[labels == -1]
         if len(noise_points) > 0:
             ax.scatter(noise_points[:, 0], noise_points[:, 1], 
                     c='gray', marker='o', s=50, alpha=0.5, 
                     label='Isolated')
         
-        # Plot clustered ants
-        unique_clusters = set(labels[labels >= 0])
-        for i, cluster in enumerate(unique_clusters):
-            mask = labels == cluster
+        # Plot clustered ants using consistent colors based on cluster_ids
+        for i, cluster_id in enumerate(cluster_ids):
+            mask = labels == cluster_id
             cluster_points = positions[mask]
+            color = colors[cluster_id % len(colors)]  # Use cluster_id for consistent coloring
             ax.scatter(cluster_points[:, 0], cluster_points[:, 1],
-                    c=[colors[i % len(colors)]], marker='o', s=50, 
-                    label=f'Cluster {cluster+1}')
+                    c=[color], marker='o', s=50, 
+                    label=f'Cluster {cluster_id}')
         
         # Add information and statistics
         minutes_elapsed = (frame / effective_fps) / 60  # Convert frames to minutes
