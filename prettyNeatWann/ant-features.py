@@ -396,8 +396,11 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
     # Get the actual ant IDs from the filtered data
     ant_ids = sorted(list(set(idx[0] for idx in data.columns)))
     
+    # Get actual frame indices from the data
+    frame_indices = data.index.values
+    
     # Analyse each timestep
-    for t in tqdm(range(len(data)), desc="Analysing clustering behaviour"):
+    for t in tqdm(frame_indices, desc="Analysing clustering behaviour"):
         # Get positions of all ants at this timestep
         positions = []
         tracked_positions = []  # Track which positions are valid
@@ -608,7 +611,7 @@ def animate_clustering(clustering_stats: Dict[str, List],
     import matplotlib.pyplot as plt
     import matplotlib.animation as animation
     from matplotlib.colors import LinearSegmentedColormap
-    
+
     # Adjust time calculations based on SCALE
     base_fps = 60.0
     effective_fps = base_fps / SCALE if SCALE else base_fps
@@ -751,8 +754,9 @@ if __name__ == "__main__":
         print("Loading raw data...")
         if args.debug:
             print(f"DEBUG MODE: Processing first {args.ants} ants and {args.timesteps} timesteps")
-        data = load_data(DATA_DIRECTORY, INPUT_FILE, debug=args.debug, 
-                        debug_ants=args.ants, debug_timesteps=args.timesteps)
+        data = load_data(DATA_DIRECTORY, INPUT_FILE, scale=SCALE,
+                        debug=args.debug, debug_ants=args.ants,
+                        debug_timesteps=args.timesteps)
         
         print("\nData Overview:")
         print(f"Total timesteps: {len(data):,}")
