@@ -381,6 +381,7 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
         Dictionary containing clustering statistics over time
     """
     from sklearn.cluster import DBSCAN
+    from scipy.spatial.distance import cdist
     
     eps_pixels = eps_mm * PIXELS_PER_MM
     
@@ -389,11 +390,17 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
         'cluster_sizes': [],
         'isolated_ants': [],
         'mean_cluster_density': [],
-        'positions': [],  # Store positions for visualization
-        'labels': []     # Store cluster labels for visualization
+        'positions': [],
+        'labels': [],
+        'cluster_centroids': []
     }
     
-    # Get the actual ant IDs from the filtered data
+    # Track previous frame's clusters
+    prev_centroids = None
+    prev_labels = None
+    next_cluster_id = 0  # Keep track of the next available cluster ID
+    
+    # Get the actual ant IDs and frame indices
     ant_ids = sorted(list(set(idx[0] for idx in data.columns)))
     
     # Get actual frame indices from the data
@@ -419,25 +426,64 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
             clustering_stats['isolated_ants'].append(len(positions))
             clustering_stats['positions'].append([])
             clustering_stats['labels'].append([])
+            prev_centroids = None
+            prev_labels = None
             continue
             
         positions = np.array(positions)
         
         # Perform DBSCAN clustering
         clustering = DBSCAN(eps=eps_pixels, min_samples=min_samples).fit(positions)
-        labels = clustering.labels_
+        current_labels = clustering.labels_
         
-        # Store positions and labels for visualization
+        # Calculate current centroids for each cluster
+        unique_clusters = set(current_labels[current_labels >= 0])
+        current_centroids = np.array([
+            positions[current_labels == i].mean(axis=0) 
+            for i in unique_clusters
+        ]) if unique_clusters else np.array([])
+        
+        # Maintain consistent cluster IDs
+        if prev_centroids is not None and len(current_centroids) > 0:
+            # Calculate distances between previous and current centroids
+            distances = cdist(prev_centroids, current_centroids)
+            
+            # Match clusters based on centroid proximity
+            matched_labels = np.full(len(current_centroids), -1)
+            while distances.size > 0 and distances.min() < eps_pixels * 2:
+                prev_idx, curr_idx = np.unravel_index(distances.argmin(), distances.shape)
+                matched_labels[curr_idx] = prev_idx
+                distances = np.delete(distances, prev_idx, axis=0)
+                distances = np.delete(distances, curr_idx, axis=1)
+            
+            # Relabel current clusters
+            new_labels = np.copy(current_labels)
+            for i, cluster_idx in enumerate(unique_clusters):
+                if matched_labels[i] >= 0:
+                    # Use previous cluster ID
+                    new_labels[current_labels == cluster_idx] = matched_labels[i]
+                else:
+                    # Assign new cluster ID
+                    new_labels[current_labels == cluster_idx] = next_cluster_id
+                    next_cluster_id += 1
+            current_labels = new_labels
+        
+        # Update tracking variables
+        prev_centroids = current_centroids
+        prev_labels = current_labels
+        
+        # Store results
         clustering_stats['positions'].append(positions.tolist())
-        clustering_stats['labels'].append(labels.tolist())
+        clustering_stats['labels'].append(current_labels.tolist())
+        clustering_stats['cluster_centroids'].append(current_centroids.tolist())
         
         # Count unique clusters (excluding noise points labeled as -1)
-        unique_clusters = len(set(labels[labels >= 0]))
+        unique_clusters = len(set(current_labels[current_labels >= 0]))
         clustering_stats['n_clusters'].append(unique_clusters)
         
         # Count ants per cluster
         if unique_clusters > 0:
-            cluster_sizes = [np.sum(labels == i) for i in range(unique_clusters)]
+            cluster_sizes = [np.sum(current_labels == i) for i in range(unique_clusters)]
             clustering_stats['cluster_sizes'].append(cluster_sizes)
             
             # Calculate cluster densities (ants per unit area)
@@ -449,7 +495,7 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
             clustering_stats['mean_cluster_density'].append(0)
         
         # Count isolated ants
-        clustering_stats['isolated_ants'].append(np.sum(labels == -1))
+        clustering_stats['isolated_ants'].append(np.sum(current_labels == -1))
     
     return clustering_stats
 
@@ -740,6 +786,8 @@ if __name__ == "__main__":
                       help='Save processed data to processed_data directory')
     parser.add_argument('--load', action='store_true',
                       help='Load previously processed data instead of processing raw data')
+    parser.add_argument('--animate', action='store_true',
+                      help='Create a time-lapsed animation of ant clustering behaviour')
     args = parser.parse_args()
     
     # Create processed data directories if they don't exist
@@ -879,10 +927,11 @@ if __name__ == "__main__":
     print(f"Percentage of time with clusters present: {100 * clustered_frames / total_frames:.1f}%")
 
     # Animate clustering
-    animate_clustering(clustering_stats, 
-                    save_path='ant_clustering.gif',  # optional
-                    target_duration=120,  # 2 minutes
-                    fps=30,
-                    start_frame=0,  # Start from beginning
-                    end_frame=10000  # Only animate first 1000 frames
-    )
+    if args.animate:
+        animate_clustering(clustering_stats, 
+                        save_path='ant_clustering.gif',  # optional
+                        target_duration=120,  # 2 minutes
+                        fps=30,
+                        start_frame=0,  # Start from beginning
+                        end_frame=10000  # Only animate first 1000 frames
+        )
