@@ -368,14 +368,15 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
     return results
 
 
-def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
+def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_distance=50):
     """
-    Analyse clustering behaviour of the colony over time using DBSCAN.
+    Analyse clustering behaviour of the colony over time using DBSCAN with consistent cluster tracking.
     
     Args:
         data: DataFrame with MultiIndex columns (ant_id, coordinate)
         eps_mm: Clustering radius in millimeters
         min_samples: Minimum samples to form a cluster
+        max_centroid_distance: Maximum distance between centroids to consider it the same cluster
     
     Returns:
         Dictionary containing clustering statistics over time
@@ -392,7 +393,8 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
         'mean_cluster_density': [],
         'positions': [],
         'labels': [],
-        'cluster_centroids': []
+        'cluster_ids': [],  # Store consistent cluster IDs
+        'centroids': []     # Store cluster centroids
     }
     
     # Track previous frame's clusters
@@ -405,6 +407,10 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
     
     # Get actual frame indices from the data
     frame_indices = data.index.values
+    
+    # Initialize cluster tracking
+    next_cluster_id = 0
+    previous_centroids = {}  # Map of cluster_id to centroid
     
     # Analyse each timestep
     for t in tqdm(frame_indices, desc="Analysing clustering behaviour"):
@@ -426,8 +432,8 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
             clustering_stats['isolated_ants'].append(len(positions))
             clustering_stats['positions'].append([])
             clustering_stats['labels'].append([])
-            prev_centroids = None
-            prev_labels = None
+            clustering_stats['cluster_ids'].append([])
+            clustering_stats['centroids'].append({})
             continue
             
         positions = np.array(positions)
@@ -436,54 +442,50 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
         clustering = DBSCAN(eps=eps_pixels, min_samples=min_samples).fit(positions)
         current_labels = clustering.labels_
         
-        # Calculate current centroids for each cluster
-        unique_clusters = set(current_labels[current_labels >= 0])
-        current_centroids = np.array([
-            positions[current_labels == i].mean(axis=0) 
-            for i in unique_clusters
-        ]) if unique_clusters else np.array([])
+        # Calculate current centroids
+        current_centroids = {}
+        current_id_map = {}  # Maps DBSCAN labels to consistent cluster IDs
         
-        # Maintain consistent cluster IDs
-        if prev_centroids is not None and len(current_centroids) > 0:
-            # Calculate distances between previous and current centroids
-            distances = cdist(prev_centroids, current_centroids)
+        for label in set(labels[labels >= 0]):
+            mask = labels == label
+            centroid = np.mean(positions[mask], axis=0)
             
-            # Match clusters based on centroid proximity
-            matched_labels = np.full(len(current_centroids), -1)
-            while distances.size > 0 and distances.min() < eps_pixels * 2:
-                prev_idx, curr_idx = np.unravel_index(distances.argmin(), distances.shape)
-                matched_labels[curr_idx] = prev_idx
-                distances = np.delete(distances, prev_idx, axis=0)
-                distances = np.delete(distances, curr_idx, axis=1)
+            # Try to match with previous clusters
+            matched_id = None
+            min_distance = float('inf')
             
-            # Relabel current clusters
-            new_labels = np.copy(current_labels)
-            for i, cluster_idx in enumerate(unique_clusters):
-                if matched_labels[i] >= 0:
-                    # Use previous cluster ID
-                    new_labels[current_labels == cluster_idx] = matched_labels[i]
-                else:
-                    # Assign new cluster ID
-                    new_labels[current_labels == cluster_idx] = next_cluster_id
-                    next_cluster_id += 1
-            current_labels = new_labels
+            for prev_id, prev_centroid in previous_centroids.items():
+                distance = np.linalg.norm(centroid - prev_centroid)
+                if distance < max_centroid_distance and distance < min_distance:
+                    min_distance = distance
+                    matched_id = prev_id
+            
+            # Assign new or matched ID
+            if matched_id is not None:
+                current_id_map[label] = matched_id
+                current_centroids[matched_id] = centroid
+            else:
+                current_id_map[label] = next_cluster_id
+                current_centroids[next_cluster_id] = centroid
+                next_cluster_id += 1
         
-        # Update tracking variables
-        prev_centroids = current_centroids
-        prev_labels = current_labels
+        # Update labels with consistent IDs
+        consistent_labels = np.array([current_id_map.get(label, -1) if label >= 0 else -1 
+                                    for label in labels])
         
         # Store results
         clustering_stats['positions'].append(positions.tolist())
-        clustering_stats['labels'].append(current_labels.tolist())
-        clustering_stats['cluster_centroids'].append(current_centroids.tolist())
+        clustering_stats['labels'].append(consistent_labels.tolist())
+        clustering_stats['cluster_ids'].append(list(current_centroids.keys()))
+        clustering_stats['centroids'].append(current_centroids)
         
-        # Count unique clusters (excluding noise points labeled as -1)
-        unique_clusters = len(set(current_labels[current_labels >= 0]))
+        # Count unique clusters
+        unique_clusters = len(current_centroids)
         clustering_stats['n_clusters'].append(unique_clusters)
         
         # Count ants per cluster
         if unique_clusters > 0:
-            cluster_sizes = [np.sum(current_labels == i) for i in range(unique_clusters)]
+            cluster_sizes = [np.sum(consistent_labels == i) for i in current_centroids.keys()]
             clustering_stats['cluster_sizes'].append(cluster_sizes)
             
             # Calculate cluster densities (ants per unit area)
@@ -495,7 +497,10 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3):
             clustering_stats['mean_cluster_density'].append(0)
         
         # Count isolated ants
-        clustering_stats['isolated_ants'].append(np.sum(current_labels == -1))
+        clustering_stats['isolated_ants'].append(np.sum(consistent_labels == -1))
+        
+        # Update previous centroids for next frame
+        previous_centroids = current_centroids.copy()
     
     return clustering_stats
 
@@ -697,9 +702,9 @@ def animate_clustering(clustering_stats: Dict[str, List],
         ax.clear()
         frame = sampled_frames[frame_idx]
         
-        # Get positions and labels for this frame
         positions = np.array(clustering_stats['positions'][frame])
         labels = np.array(clustering_stats['labels'][frame])
+        cluster_ids = clustering_stats['cluster_ids'][frame]
         
         if len(positions) == 0:
             return
@@ -709,21 +714,21 @@ def animate_clustering(clustering_stats: Dict[str, List],
                         color='gray', linestyle='--')
         ax.add_artist(circle)
         
-        # Plot isolated ants (noise points)
+        # Plot isolated ants
         noise_points = positions[labels == -1]
         if len(noise_points) > 0:
             ax.scatter(noise_points[:, 0], noise_points[:, 1], 
                     c='gray', marker='o', s=50, alpha=0.5, 
                     label='Isolated')
         
-        # Plot clustered ants
-        unique_clusters = set(labels[labels >= 0])
-        for i, cluster in enumerate(unique_clusters):
-            mask = labels == cluster
+        # Plot clustered ants using consistent colors based on cluster_ids
+        for i, cluster_id in enumerate(cluster_ids):
+            mask = labels == cluster_id
             cluster_points = positions[mask]
+            color = colors[cluster_id % len(colors)]  # Use cluster_id for consistent coloring
             ax.scatter(cluster_points[:, 0], cluster_points[:, 1],
-                    c=[colors[i % len(colors)]], marker='o', s=50, 
-                    label=f'Cluster {cluster+1}')
+                    c=[color], marker='o', s=50, 
+                    label=f'Cluster {cluster_id}')
         
         # Add information and statistics
         minutes_elapsed = (frame / effective_fps) / 60  # Convert frames to minutes
