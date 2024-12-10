@@ -785,6 +785,8 @@ if __name__ == "__main__":
                       help='Save processed data to processed_data directory')
     parser.add_argument('--load', action='store_true',
                       help='Load previously processed data instead of processing raw data')
+    parser.add_argument('--animate', action='store_true',
+                      help='Create a time-lapsed animation of ant clustering behaviour')
     args = parser.parse_args()
     
     # Create processed data directories if they don't exist
@@ -924,10 +926,11 @@ if __name__ == "__main__":
     print(f"Percentage of time with clusters present: {100 * clustered_frames / total_frames:.1f}%")
 
     # Animate clustering
-    animate_clustering(clustering_stats, 
-                    save_path='ant_clustering.gif',  # optional
-                    target_duration=120,  # 2 minutes
-                    fps=30,
-                    start_frame=0,  # Start from beginning
-                    end_frame=10000  # Only animate first 1000 frames
-    )
+    if args.animate:
+        animate_clustering(clustering_stats, 
+                        save_path='ant_clustering.gif',  # optional
+                        target_duration=120,  # 2 minutes
+                        fps=30,
+                        start_frame=0,  # Start from beginning
+                        end_frame=10000  # Only animate first 1000 frames
+        )
