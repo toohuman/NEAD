@@ -402,6 +402,10 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_dista
     # Get actual frame indices from the data
     frame_indices = data.index.values
     
+    # Initialize cluster tracking
+    next_cluster_id = 0
+    previous_centroids = {}  # Map of cluster_id to centroid
+    
     # Analyse each timestep
     for t in tqdm(frame_indices, desc="Analysing clustering behaviour"):
         # Get positions of all ants at this timestep
@@ -422,6 +426,8 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_dista
             clustering_stats['isolated_ants'].append(len(positions))
             clustering_stats['positions'].append([])
             clustering_stats['labels'].append([])
+            clustering_stats['cluster_ids'].append([])
+            clustering_stats['centroids'].append({})
             continue
             
         positions = np.array(positions)
@@ -430,17 +436,50 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_dista
         clustering = DBSCAN(eps=eps_pixels, min_samples=min_samples).fit(positions)
         labels = clustering.labels_
         
-        # Store positions and labels for visualization
-        clustering_stats['positions'].append(positions.tolist())
-        clustering_stats['labels'].append(labels.tolist())
+        # Calculate current centroids
+        current_centroids = {}
+        current_id_map = {}  # Maps DBSCAN labels to consistent cluster IDs
         
-        # Count unique clusters (excluding noise points labeled as -1)
-        unique_clusters = len(set(labels[labels >= 0]))
+        for label in set(labels[labels >= 0]):
+            mask = labels == label
+            centroid = np.mean(positions[mask], axis=0)
+            
+            # Try to match with previous clusters
+            matched_id = None
+            min_distance = float('inf')
+            
+            for prev_id, prev_centroid in previous_centroids.items():
+                distance = np.linalg.norm(centroid - prev_centroid)
+                if distance < max_centroid_distance and distance < min_distance:
+                    min_distance = distance
+                    matched_id = prev_id
+            
+            # Assign new or matched ID
+            if matched_id is not None:
+                current_id_map[label] = matched_id
+                current_centroids[matched_id] = centroid
+            else:
+                current_id_map[label] = next_cluster_id
+                current_centroids[next_cluster_id] = centroid
+                next_cluster_id += 1
+        
+        # Update labels with consistent IDs
+        consistent_labels = np.array([current_id_map.get(label, -1) if label >= 0 else -1 
+                                    for label in labels])
+        
+        # Store results
+        clustering_stats['positions'].append(positions.tolist())
+        clustering_stats['labels'].append(consistent_labels.tolist())
+        clustering_stats['cluster_ids'].append(list(current_centroids.keys()))
+        clustering_stats['centroids'].append(current_centroids)
+        
+        # Count unique clusters
+        unique_clusters = len(current_centroids)
         clustering_stats['n_clusters'].append(unique_clusters)
         
         # Count ants per cluster
         if unique_clusters > 0:
-            cluster_sizes = [np.sum(labels == i) for i in range(unique_clusters)]
+            cluster_sizes = [np.sum(consistent_labels == i) for i in current_centroids.keys()]
             clustering_stats['cluster_sizes'].append(cluster_sizes)
             
             # Calculate cluster densities (ants per unit area)
@@ -452,7 +491,10 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_dista
             clustering_stats['mean_cluster_density'].append(0)
         
         # Count isolated ants
-        clustering_stats['isolated_ants'].append(np.sum(labels == -1))
+        clustering_stats['isolated_ants'].append(np.sum(consistent_labels == -1))
+        
+        # Update previous centroids for next frame
+        previous_centroids = current_centroids.copy()
     
     return clustering_stats
 
