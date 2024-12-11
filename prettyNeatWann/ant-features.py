@@ -440,7 +440,7 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_dista
         
         # Perform DBSCAN clustering
         clustering = DBSCAN(eps=eps_pixels, min_samples=min_samples).fit(positions)
-        current_labels = clustering.labels_
+        labels = clustering.labels_
         
         # Calculate current centroids
         current_centroids = {}
@@ -814,7 +814,7 @@ if __name__ == "__main__":
         print("\nData Overview:")
         print(f"Total timesteps: {len(data):,}")
         print(f"Number of ants: {len(data.columns.levels[0])}")
-        print(f"Recording duration: {len(data)/(60*60):.1f} minutes")
+        print(f"Recording duration: {len(data)*SCALE/(60*60):.1f} minutes")
         
         print("\nProcessing ant trajectories...")
         start_time = time.time()
@@ -866,7 +866,7 @@ if __name__ == "__main__":
             for timestep in ant_data['social_features']:
                 if timestep and 'nn_stats' in timestep:
                     nn_stats = timestep['nn_stats']
-                    if 'nn_dist_1' in nn_stats:  # First nearest neighbor
+                    if 'nn_dist_1' in nn_stats:  # First nearest neighbour
                         all_nn_distances.append(nn_stats['nn_dist_1'])
         
         return {
@@ -891,16 +891,16 @@ if __name__ == "__main__":
 
     print("\nSocial Interaction Analysis:")
     print(f"{'='*50}")
-    print(f"Average nearest neighbor distance: {social_stats['avg_nn_distance']:.2f} pixels")
-    print(f"Minimum nearest neighbor distance: {social_stats['min_nn_distance']:.2f} pixels")
-    print(f"Maximum nearest neighbor distance: {social_stats['max_nn_distance']:.2f} pixels")
+    print(f"Average nearest neighbour distance: {social_stats['avg_nn_distance']:.2f} pixels")
+    print(f"Minimum nearest neighbour distance: {social_stats['min_nn_distance']:.2f} pixels")
+    print(f"Maximum nearest neighbour distance: {social_stats['max_nn_distance']:.2f} pixels")
 
     # Convert some metrics to biological units
     print("\nBiological Metrics:")
     print(f"{'='*50}")
     print(f"Average velocity: {movement_stats['avg_velocity']/PIXELS_PER_MM:.2f} mm/second")
     print(f"Maximum velocity: {movement_stats['max_velocity']/PIXELS_PER_MM:.2f} mm/second")
-    print(f"Average nearest neighbor distance: {social_stats['avg_nn_distance']/PIXELS_PER_MM:.2f} mm")
+    print(f"Average nearest neighbour distance: {social_stats['avg_nn_distance']/PIXELS_PER_MM:.2f} mm")
 
     print("\nClustering Analysis:")
     print(f"{'='*50}")
