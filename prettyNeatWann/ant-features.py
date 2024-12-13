@@ -21,6 +21,7 @@ MAX_EXPECTED_VELOCITY = 50  # mm/s
 
 DATA_DIRECTORY = "data/2023_2/"
 INPUT_FILE = 'KA050_processed_10cm_5h_20230614.pkl.xz'
+VIDEO_FPS = 60
 SCALE = 2
 
 def load_data(source_dir, input_file, scale=None, arena_dim=None, debug=False, debug_ants=5, debug_timesteps=10000):
@@ -72,13 +73,12 @@ class AntFeatureExtractor:
         Initialize the feature extractor.
         
         Args:
-            fps: Frame rate of the data (will be adjusted by SCALE if provided)
+            fps: Frame rate of the data (already adjusted for SCALE if provided)
             velocity_threshold: Threshold for determining stop/move states (units/second)
             max_position_change: Maximum allowable position change between consecutive frames (units)
             max_velocity_pixels: Maximum allowable velocity in pixels/second
         """
-        # Adjust fps if SCALE is provided
-        self.fps = fps / SCALE if SCALE else fps
+        self.fps = fps  # fps is already scaled when passed in
         self.dt = 1.0 / self.fps
         self.velocity_threshold = velocity_threshold
         self.max_position_change = max_position_change * (SCALE if SCALE else 1)  # Scale position change threshold
@@ -290,8 +290,7 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
         Dictionary mapping ant IDs to their extracted features
     """
     # Adjust fps based on SCALE
-    base_fps = 60.0
-    effective_fps = base_fps / SCALE if SCALE else base_fps
+    effective_fps = VIDEO_FPS / SCALE if SCALE else VIDEO_FPS
     
     feature_extractor = AntFeatureExtractor(fps=effective_fps)
     social_extractor = SocialContextExtractor()
@@ -664,8 +663,7 @@ def animate_clustering(clustering_stats: Dict[str, List],
     from matplotlib.colors import LinearSegmentedColormap
 
     # Adjust time calculations based on SCALE
-    base_fps = 60.0
-    effective_fps = base_fps / SCALE if SCALE else base_fps
+    effective_fps = VIDEO_FPS / SCALE if SCALE else VIDEO_FPS
 
     # Calculate frame sampling
     total_frames = len(clustering_stats['positions'])
