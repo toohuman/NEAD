@@ -401,10 +401,10 @@ class BehaviouralStateExtractor:
     """Extract high-dimensional behavioural state features from ant trajectory data."""
     
     def __init__(self, 
-                 history_length: int = 60,  # 1 second at 60fps
+                 seconds_of_history: float = 1.0,  # How many seconds of history to maintain
                  n_nearest: int = 5,  # Number of nearest neighbours to track
                  fps: float = 60.0):
-        self.history_length = history_length
+        self.history_length = int(seconds_of_history * fps)
         self.n_nearest = n_nearest
         self.fps = fps
         self.dt = 1.0 / fps
