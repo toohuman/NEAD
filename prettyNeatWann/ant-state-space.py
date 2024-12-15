@@ -420,8 +420,8 @@ class BehaviouralStateExtractor:
         n_ants = positions.shape[0]
         
         # Calculate velocities and accelerations
-        velocities = (positions - prev_positions[:, -1]) / self.dt
-        accelerations = (velocities - prev_velocities[:, -1]) / self.dt
+        velocities = (positions - prev_positions[-1]) / self.dt
+        accelerations = (velocities - prev_velocities[-1]) / self.dt
         
         # Calculate turn rates and path curvatures
         prev_headings = np.arctan2(prev_velocities[:, -1, 1], prev_velocities[:, -1, 0])
