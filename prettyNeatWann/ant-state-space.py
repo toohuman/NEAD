@@ -1148,10 +1148,10 @@ def integrate_state_space_analysis(processed_data: Dict,
     }
 
 
-def visualize_state_space(analysis_results: Dict,
+def visualise_state_space(analysis_results: Dict,
                          save_path: Optional[str] = None):
     """
-    Visualize the behavioural state space and trajectories.
+    Visualise the behavioural state space and trajectories.
     
     Args:
         analysis_results: Results from state space analysis
@@ -1354,7 +1354,7 @@ def main():
     
     # Create visualizations
     print("\nGenerating visualizations...")
-    visualize_state_space(analysis_results,
+    visualise_state_space(analysis_results,
                          save_path=str(save_dir / 'state_space_visualization.png'))
     
     print("\nAnalysis complete! Results saved to:", save_dir)
