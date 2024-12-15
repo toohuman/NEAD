@@ -765,43 +765,51 @@ class BehaviouralTrajectoryAnalyser:
         
         return common_paths
     
-    def compute_transition_probabilities(self, n_bins: int = 10) -> np.ndarray:
+    def compute_transition_probabilities(self, n_bins: int = 5, max_dims: int = 3) -> np.ndarray:
         """
         Compute transition probabilities between discretized regions of state space.
         
         Args:
             n_bins: Number of bins for discretizing each dimension
+            max_dims: Maximum number of dimensions to consider
             
         Returns:
             Transition probability matrix
         """
+        # Use only first max_dims dimensions
+        states_subset = self.reduced_states[:, :max_dims]
+        
         # Discretize the state space
         discretized_states = []
-        for dim in range(self.reduced_states.shape[1]):
+        for dim in range(states_subset.shape[1]):
             bins = np.linspace(
-                self.reduced_states[:, dim].min(),
-                self.reduced_states[:, dim].max(),
+                states_subset[:, dim].min(),
+                states_subset[:, dim].max(),
                 n_bins + 1
             )
-            discretized_dim = np.digitize(self.reduced_states[:, dim], bins) - 1
+            discretized_dim = np.digitize(states_subset[:, dim], bins) - 1
             discretized_states.append(discretized_dim)
         
         discretized_states = np.array(discretized_states).T
         
         # Calculate state transitions
-        n_states = n_bins ** self.reduced_states.shape[1]
+        n_states = n_bins ** states_subset.shape[1]
         transitions = np.zeros((n_states, n_states))
         
         for t in range(len(discretized_states) - 1):
-            current_state = np.ravel_multi_index(
-                discretized_states[t], 
-                [n_bins] * self.reduced_states.shape[1]
-            )
-            next_state = np.ravel_multi_index(
-                discretized_states[t + 1],
-                [n_bins] * self.reduced_states.shape[1]
-            )
-            transitions[current_state, next_state] += 1
+            try:
+                current_state = np.ravel_multi_index(
+                    discretized_states[t], 
+                    [n_bins] * states_subset.shape[1]
+                )
+                next_state = np.ravel_multi_index(
+                    discretized_states[t + 1],
+                    [n_bins] * states_subset.shape[1]
+                )
+                transitions[current_state, next_state] += 1
+            except ValueError:
+                # Skip invalid state transitions
+                continue
         
         # Normalize to get probabilities
         row_sums = transitions.sum(axis=1, keepdims=True)
