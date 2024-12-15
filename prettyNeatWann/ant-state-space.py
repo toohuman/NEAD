@@ -426,8 +426,18 @@ class BehaviouralStateExtractor:
         # Calculate turn rates and path curvatures
         prev_headings = np.arctan2(prev_velocities[:, -1, 1], prev_velocities[:, -1, 0])
         current_headings = np.arctan2(velocities[:, 1], velocities[:, 0])
-        # Ensure both arrays have the same shape before subtraction
-        turn_rates = np.abs(np.unwrap(current_headings - prev_headings[:current_headings.shape[0]])) / self.dt
+        
+        # Ensure arrays have matching shapes by padding or truncating
+        min_length = min(len(prev_headings), len(current_headings))
+        prev_headings = prev_headings[:min_length]
+        current_headings = current_headings[:min_length]
+        
+        # Calculate turn rates
+        turn_rates = np.abs(np.unwrap(current_headings - prev_headings)) / self.dt
+        
+        # Pad turn_rates back to original size if needed
+        if len(turn_rates) < n_ants:
+            turn_rates = np.pad(turn_rates, (0, n_ants - len(turn_rates)), mode='edge')
         
         # Calculate path curvatures using three-point method
         curvatures = np.zeros(n_ants)
