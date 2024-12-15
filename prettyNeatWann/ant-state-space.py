@@ -482,8 +482,17 @@ class BehaviouralStateExtractor:
         for i in range(n_ants):
             distances = np.linalg.norm(positions - positions[i], axis=1)
             distances[i] = np.inf  # Exclude self
-            nearest_indices = np.argpartition(distances, self.n_nearest)[:self.n_nearest]
-            neighbor_distances[i] = distances[nearest_indices]
+            # Adjust n_nearest if there aren't enough points
+            k = min(self.n_nearest, len(distances) - 1)  # -1 to account for self
+            if k > 0:
+                nearest_indices = np.argpartition(distances, k)[:k]
+                neighbor_distances[i, :k] = distances[nearest_indices]
+                # Fill remaining slots with max distance if any
+                if k < self.n_nearest:
+                    neighbor_distances[i, k:] = np.max(distances)
+            else:
+                # If no neighbors, fill with max possible distance
+                neighbor_distances[i, :] = np.sqrt((2 * ARENA_RADIUS) ** 2)
         
         # Calculate overall activity level
         activity_level = np.mean(cluster_info['mean_cluster_density'])
