@@ -514,8 +514,8 @@ class BehaviouralStateExtractor:
         return cluster_config, neighbor_distances, activity_level, spatial_distribution
     
     def extract_temporal_context(self,
-                               current_state: Dict[str, any],
-                               prev_states: List[Dict[str, any]],
+                               current_state: BehaviouralState,
+                               prev_states: List[BehaviouralState],
                                window_size: int = 60  # 1 second at 60fps
                                ) -> Tuple[np.ndarray, Dict[str, float], Dict[str, float]]:
         """Extract temporal context features."""
@@ -524,17 +524,17 @@ class BehaviouralStateExtractor:
         for i in range(1, len(prev_states)):
             # Calculate state difference metric
             state_changes[i] = np.abs(
-                prev_states[i]['activity_level'] - 
-                prev_states[i-1]['activity_level']
+                prev_states[i].activity_level - 
+                prev_states[i-1].activity_level
             )
         
         # Calculate transition rates
         transition_rates = {
             'activity_change_rate': np.mean(np.abs(np.diff(
-                [state['activity_level'] for state in prev_states]
+                [state.activity_level for state in prev_states]
             ))),
             'cluster_change_rate': np.mean(np.abs(np.diff(
-                [state['cluster_config']['n_clusters'] for state in prev_states]
+                [state.cluster_config['n_clusters'] for state in prev_states]
             )))
         }
         
@@ -542,12 +542,12 @@ class BehaviouralStateExtractor:
         time_features = {
             'activity_trend': np.polyfit(
                 np.arange(len(prev_states)),
-                [state['activity_level'] for state in prev_states],
+                [state.activity_level for state in prev_states],
                 1
             )[0],
             'clustering_trend': np.polyfit(
                 np.arange(len(prev_states)),
-                [state['cluster_config']['n_clusters'] for state in prev_states],
+                [state.cluster_config['n_clusters'] for state in prev_states],
                 1
             )[0]
         }
