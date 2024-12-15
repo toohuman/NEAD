@@ -1039,6 +1039,8 @@ def integrate_state_space_analysis(processed_data: Dict,
     Returns:
         Dictionary containing state space analysis results
     """
+    print("Initializing state space analysis...")
+    
     # Initialize state extractor
     effective_fps = fps / scale if scale else fps
     state_extractor = BehaviouralStateExtractor(fps=effective_fps)
@@ -1054,12 +1056,13 @@ def integrate_state_space_analysis(processed_data: Dict,
     # Determine number of timesteps from clustering stats
     n_timesteps = len(clustering_stats['positions'])
     
+    print("Pre-processing position and velocity data...")
     # Pre-allocate arrays for positions and velocities
     positions_history = np.zeros((n_timesteps, n_ants, 2))
     velocities_history = np.zeros((n_timesteps, n_ants, 2))
     
-    # Fill position and velocity histories
-    for t in range(n_timesteps):
+    # Fill position and velocity histories with progress bar
+    for t in tqdm(range(n_timesteps), desc="Building position/velocity history"):
         for i, ant_id in enumerate(ant_ids):
             # Get position data
             if t < len(clustering_stats['positions']):
@@ -1075,7 +1078,8 @@ def integrate_state_space_analysis(processed_data: Dict,
     # Process each timestep
     window_size = int(effective_fps)  # 1 second window
     
-    for t in range(window_size, n_timesteps):
+    print("Extracting behavioral states...")
+    for t in tqdm(range(window_size, n_timesteps), desc="Processing timesteps"):
         # Extract current positions and history
         current_positions = positions_history[t]
         position_window = positions_history[t-window_size:t]
@@ -1100,18 +1104,26 @@ def integrate_state_space_analysis(processed_data: Dict,
         states.append(state)
         state_vectors.append(state_extractor.state_to_vector(state))
     
+    print("Reducing dimensionality...")
     # Reduce dimensionality of state vectors
     state_vectors = np.array(state_vectors)
     reduced_states = state_extractor.reduce_dimensionality(state_vectors)
     
+    print("Analyzing trajectories...")
     # Analyse trajectories through state space
     trajectory_analyser = BehaviouralTrajectoryAnalyser(reduced_states)
     
+    print("Finding common behavioral patterns...")
     # Find common behavioural patterns
     common_paths = trajectory_analyser.find_common_paths()
+    
+    print("Computing transition probabilities...")
     transition_probs = trajectory_analyser.compute_transition_probabilities()
+    
+    print("Identifying behavioral motifs...")
     behavioral_motifs = trajectory_analyser.identify_behavioral_motifs()
     
+    print("Calculating state space density...")
     # Calculate state space density
     state_density = trajectory_analyser.compute_density()
     
