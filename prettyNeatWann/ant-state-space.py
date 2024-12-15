@@ -1145,8 +1145,9 @@ def visualize_state_space(analysis_results: Dict,
     ax1 = fig.add_subplot(121, projection='3d')
     reduced_states = analysis_results['reduced_states']
     
-    # Plot points colored by density
-    density = analysis_results['state_density'](reduced_states[:, :3].T)
+    # Plot points colored by density (using only first 3 dimensions for consistency)
+    density_estimator = gaussian_kde(reduced_states[:, :3].T)
+    density = density_estimator(reduced_states[:, :3].T)
     scatter = ax1.scatter(reduced_states[:, 0],
                          reduced_states[:, 1],
                          reduced_states[:, 2],
