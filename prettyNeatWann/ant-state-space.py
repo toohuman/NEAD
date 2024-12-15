@@ -655,11 +655,11 @@ class BehaviouralStateExtractor:
         
         return reduced_vectors
     
-    def analyze_state_space(self, 
+    def analyse_state_space(self, 
                           reduced_states: np.ndarray,
                           n_regions: int = 5
                           ) -> Tuple[np.ndarray, List[List[int]]]:
-        """Analyze the structure of the behavioural state space."""
+        """Analyse the structure of the behavioural state space."""
         from sklearn.cluster import DBSCAN
         
         # Identify dense regions in state space
@@ -688,8 +688,8 @@ class BehaviouralStateExtractor:
         
         return transitions, regions
 
-class BehaviouralTrajectoryAnalyzer:
-    """Analyze trajectories through behavioural state space."""
+class BehaviouralTrajectoryAnalyser:
+    """Analyse trajectories through behavioural state space."""
     
     def __init__(self, reduced_states: np.ndarray):
         self.reduced_states = reduced_states
@@ -1075,16 +1075,16 @@ def integrate_state_space_analysis(processed_data: Dict,
     state_vectors = np.array(state_vectors)
     reduced_states = state_extractor.reduce_dimensionality(state_vectors)
     
-    # Analyze trajectories through state space
-    trajectory_analyzer = BehaviouralTrajectoryAnalyzer(reduced_states)
+    # Analyse trajectories through state space
+    trajectory_analyser = BehaviouralTrajectoryAnalyser(reduced_states)
     
     # Find common behavioural patterns
-    common_paths = trajectory_analyzer.find_common_paths()
-    transition_probs = trajectory_analyzer.compute_transition_probabilities()
-    behavioral_motifs = trajectory_analyzer.identify_behavioral_motifs()
+    common_paths = trajectory_analyser.find_common_paths()
+    transition_probs = trajectory_analyser.compute_transition_probabilities()
+    behavioral_motifs = trajectory_analyser.identify_behavioral_motifs()
     
     # Calculate state space density
-    state_density = trajectory_analyzer.compute_density()
+    state_density = trajectory_analyser.compute_density()
     
     return {
         'states': states,
