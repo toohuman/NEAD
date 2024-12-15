@@ -606,51 +606,62 @@ class BehaviouralStateExtractor:
         """Convert behavioural state to feature vector for dimensionality reduction."""
         features = []
         
+        # Helper function to safely compute statistics
+        def safe_stat(func, arr, axis=None):
+            if isinstance(arr, np.ndarray) and arr.size > 0:
+                # Replace inf and -inf with nan
+                arr = np.where(np.isinf(arr), np.nan, arr)
+                # Compute stat, defaulting to 0 if all values are nan
+                result = func(arr[~np.isnan(arr)], axis=axis) if np.any(~np.isnan(arr)) else 0
+                # Ensure result is finite
+                return 0 if np.isinf(result) else result
+            return 0
+        
         # Individual motion features
         features.extend([
-            np.mean(np.linalg.norm(state.velocities, axis=1)),
-            np.std(np.linalg.norm(state.velocities, axis=1)),
-            np.mean(np.linalg.norm(state.accelerations, axis=1)),
-            np.std(np.linalg.norm(state.accelerations, axis=1)),
-            np.mean(state.turn_rates),
-            np.std(state.turn_rates),
-            np.mean(state.curvatures),
-            np.std(state.curvatures)
+            safe_stat(np.mean, np.linalg.norm(state.velocities, axis=1)),
+            safe_stat(np.std, np.linalg.norm(state.velocities, axis=1)),
+            safe_stat(np.mean, np.linalg.norm(state.accelerations, axis=1)),
+            safe_stat(np.std, np.linalg.norm(state.accelerations, axis=1)),
+            safe_stat(np.mean, state.turn_rates),
+            safe_stat(np.std, state.turn_rates),
+            safe_stat(np.mean, state.curvatures),
+            safe_stat(np.std, state.curvatures)
         ])
         
         # Movement history features
         features.extend([
-            np.mean(state.movement_history),
-            np.std(state.movement_history),
-            np.mean(state.stop_go_patterns),
-            np.std(state.stop_go_patterns)
+            safe_stat(np.mean, state.movement_history),
+            safe_stat(np.std, state.movement_history),
+            safe_stat(np.mean, state.stop_go_patterns),
+            safe_stat(np.std, state.stop_go_patterns)
         ])
         
         # Colony-level features
         features.extend([
-            state.cluster_config['n_clusters'],
-            np.mean(state.cluster_config['cluster_sizes']) if state.cluster_config['cluster_sizes'] else 0,
-            state.cluster_config['mean_density'],
-            state.activity_level,
-            state.spatial_distribution['area'],
-            state.spatial_distribution['density']
+            safe_stat(float, state.cluster_config['n_clusters']),
+            safe_stat(np.mean, state.cluster_config['cluster_sizes']),
+            safe_stat(float, state.cluster_config['mean_density']),
+            safe_stat(float, state.activity_level),
+            safe_stat(float, state.spatial_distribution['area']),
+            safe_stat(float, state.spatial_distribution['density'])
         ])
         
         # Neighbor distance features
         features.extend([
-            np.mean(state.neighbor_distances),
-            np.std(state.neighbor_distances),
-            np.min(state.neighbor_distances),
-            np.max(state.neighbor_distances)
+            safe_stat(np.mean, state.neighbor_distances),
+            safe_stat(np.std, state.neighbor_distances),
+            safe_stat(np.min, state.neighbor_distances),
+            safe_stat(np.max, state.neighbor_distances)
         ])
         
         # Temporal features
         features.extend([
-            np.mean(state.state_changes),
-            state.transition_rates['activity_change_rate'],
-            state.transition_rates['cluster_change_rate'],
-            state.time_features['activity_trend'],
-            state.time_features['clustering_trend']
+            safe_stat(np.mean, state.state_changes),
+            safe_stat(float, state.transition_rates['activity_change_rate']),
+            safe_stat(float, state.transition_rates['cluster_change_rate']),
+            safe_stat(float, state.time_features['activity_trend']),
+            safe_stat(float, state.time_features['clustering_trend'])
         ])
         
         return np.array(features)
