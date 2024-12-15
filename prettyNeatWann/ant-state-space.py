@@ -442,7 +442,12 @@ class BehaviouralStateExtractor:
         # Calculate path curvatures using three-point method
         curvatures = np.zeros(n_ants)
         for i in range(n_ants):
-            points = np.vstack([prev_positions[i, -2:], positions[i]])
+            # Ensure we have enough previous positions
+            if prev_positions.shape[1] >= 2:
+                points = np.vstack([prev_positions[i, -2:], positions[i]])
+            else:
+                # If we don't have enough history, use what we have
+                points = np.vstack([prev_positions[i], positions[i]])
             # Calculate curvature using three points
             if len(points) >= 3:
                 dx = np.gradient(points[:, 0])
