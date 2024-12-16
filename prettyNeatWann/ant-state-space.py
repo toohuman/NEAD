@@ -696,7 +696,7 @@ class BehaviouralStateExtractor:
         
         return np.array(features)
     
-    def reduce_dimensionality(self, state_vectors: List[np.ndarray]) -> np.ndarray:
+    def reduce_dimensionality(self, state_vectors: List[np.ndarray]) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Reduce dimensionality of state vectors using PCA."""
         # Scale the features
         scaled_vectors = self.scaler.fit_transform(state_vectors)
@@ -704,7 +704,42 @@ class BehaviouralStateExtractor:
         # Apply PCA
         reduced_vectors = self.pca.fit_transform(scaled_vectors)
         
-        return reduced_vectors
+        # Analyze PCA components
+        feature_names = [
+            'mean_velocity', 'std_velocity', 
+            'mean_acceleration', 'std_acceleration',
+            'mean_turn_rate', 'std_turn_rate',
+            'mean_curvature', 'std_curvature',
+            'mean_movement', 'std_movement',
+            'mean_stop_go', 'std_stop_go',
+            'n_clusters', 'mean_cluster_size', 'cluster_density',
+            'activity_level', 'spatial_area', 'spatial_density',
+            'mean_neighbor_dist', 'std_neighbor_dist',
+            'min_neighbor_dist', 'max_neighbor_dist',
+            'mean_state_change', 'activity_change_rate',
+            'cluster_change_rate', 'activity_trend', 'clustering_trend'
+        ]
+        
+        # Get component loadings and explained variance
+        loadings = self.pca.components_
+        explained_variance = self.pca.explained_variance_ratio_
+        
+        # Analyze top contributors for each component
+        pca_analysis = {
+            'feature_names': feature_names,
+            'loadings': loadings,
+            'explained_variance': explained_variance,
+            'top_contributors': {}
+        }
+        
+        for i, component in enumerate(loadings[:3]):  # Analyze first 3 components
+            sorted_idx = np.argsort(np.abs(component))[::-1]
+            pca_analysis['top_contributors'][f'PC{i+1}'] = [
+                (feature_names[idx], component[idx])
+                for idx in sorted_idx[:5]  # Get top 5 contributors
+            ]
+        
+        return reduced_vectors, pca_analysis
     
     def analyse_state_space(self, 
                           reduced_states: np.ndarray,
@@ -1137,7 +1172,15 @@ def integrate_state_space_analysis(processed_data: Dict,
     print("Reducing dimensionality...")
     # Reduce dimensionality of state vectors
     state_vectors = np.array(state_vectors)
-    reduced_states = state_extractor.reduce_dimensionality(state_vectors)
+    reduced_states, pca_analysis = state_extractor.reduce_dimensionality(state_vectors)
+    
+    # Print PCA analysis results
+    print("\nPCA Analysis Results:")
+    print("Explained variance ratios:", pca_analysis['explained_variance'][:3])
+    for pc, contributors in pca_analysis['top_contributors'].items():
+        print(f"\n{pc} top contributors:")
+        for feature, loading in contributors:
+            print(f"{feature}: {loading:.3f}")
     
     print("Analyzing trajectories...")
     # Analyse trajectories through state space
@@ -1164,7 +1207,8 @@ def integrate_state_space_analysis(processed_data: Dict,
         'common_paths': common_paths,
         'transition_probabilities': transition_probs,
         'behavioral_motifs': behavioral_motifs,
-        'state_density': state_density
+        'state_density': state_density,
+        'pca_analysis': pca_analysis
     }
 
 
