@@ -1216,9 +1216,21 @@ def visualise_state_space(analysis_results: Dict,
     # Transition probability heatmap
     ax2 = fig.add_subplot(122)
     transition_probs = analysis_results['transition_probabilities']
+    
+    # Handle NaN and Inf values
+    transition_probs = np.nan_to_num(transition_probs, nan=0.0, posinf=1.0, neginf=0.0)
+    
+    # Ensure proper normalization
+    row_sums = transition_probs.sum(axis=1, keepdims=True)
+    transition_probs = np.divide(transition_probs, row_sums, 
+                               where=row_sums!=0, 
+                               out=np.zeros_like(transition_probs))
+    
     im = ax2.imshow(transition_probs,
                     cmap='Blues',
-                    interpolation='nearest')
+                    interpolation='nearest',
+                    vmin=0.0,
+                    vmax=1.0)
     plt.colorbar(im, label='Transition Probability')
     ax2.set_title('State Transition Probabilities')
     
