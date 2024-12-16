@@ -442,8 +442,10 @@ class BehaviouralStateExtractor:
         prev_headings = prev_headings[:min_length]
         current_headings = current_headings[:min_length]
         
-        # Calculate turn rates
-        turn_rates = np.abs(np.unwrap(current_headings - prev_headings)) / self.dt
+        # Calculate turn rates (ensuring matching array lengths)
+        angle_diff = current_headings - prev_headings
+        # Pad the result with the first value to maintain array length
+        turn_rates = np.pad(np.abs(np.unwrap(angle_diff)), (0, 1), mode='edge') / self.dt
         
         # Pad turn_rates back to original size if needed
         if len(turn_rates) < n_ants:
