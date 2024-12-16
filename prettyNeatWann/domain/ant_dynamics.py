@@ -8,6 +8,8 @@ import random
 import h5py
 import lzma
 import os
+from pathlib import Path
+from typing import Dict, Any, Optional
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -144,6 +146,62 @@ def translate_data_to_sim_space(data, arena_dim):
     logger.info(msg=f"Simulated: {arena_dim[0]}, scale: {arena_dim[1]}")
 
     return data
+
+
+def load_analysis_results(results_dir: str = 'results/state_space') -> Dict[str, Any]:
+    """
+    Load the saved analysis results from the specified directory.
+    
+    Args:
+        results_dir: Directory containing the analysis output files
+        
+    Returns:
+        Dictionary containing all analysis results:
+            - state_vectors: Raw state vectors
+            - reduced_states: PCA-reduced state representations
+            - transition_probabilities: State transition matrix
+            - common_paths: Common behavioral sequences
+            - behavioral_motifs: Identified behavioral patterns
+    
+    Raises:
+        FileNotFoundError: If any of the required files are missing
+    """
+    results_path = Path(results_dir)
+    
+    try:
+        # Load each component
+        state_vectors = np.load(results_path / 'state_vectors.npy')
+        reduced_states = np.load(results_path / 'reduced_states.npy')
+        transition_probabilities = np.load(results_path / 'transition_probabilities.npy')
+        common_paths = np.load(results_path / 'common_paths.npy', allow_pickle=True)
+        behavioral_motifs = np.load(results_path / 'behavioral_motifs.npy', allow_pickle=True)
+        
+        # Package results
+        results = {
+            'state_vectors': state_vectors,
+            'reduced_states': reduced_states,
+            'transition_probabilities': transition_probabilities,
+            'common_paths': common_paths,
+            'behavioral_motifs': behavioral_motifs
+        }
+        
+        # Print summary of loaded data
+        print("\nLoaded analysis results:")
+        print(f"State vectors shape: {state_vectors.shape}")
+        print(f"Reduced states shape: {reduced_states.shape}")
+        print(f"Transition matrix shape: {transition_probabilities.shape}")
+        print(f"Number of common paths: {len(common_paths)}")
+        print(f"Number of behavioral motifs: {len(behavioral_motifs)}")
+        
+        return results
+    
+    except FileNotFoundError as e:
+        print(f"Error: Could not find required analysis files in {results_dir}")
+        print(f"Make sure you have run the analysis code first: {e}")
+        raise
+    except Exception as e:
+        print(f"Error loading analysis results: {e}")
+        raise
 
 
 def add_theta_and_smoothed_theta(df, window_size=20, smoothed_suffix='smoothed_theta'):
