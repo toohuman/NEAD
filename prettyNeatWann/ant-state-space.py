@@ -29,7 +29,8 @@ INPUT_FILE = 'KA050_processed_10cm_5h_20230614.pkl.xz'
 VIDEO_FPS = 60
 SCALE = 2
 
-def load_data(source_dir, input_file, scale=None, arena_dim=None, debug=False, debug_ants=5, debug_timesteps=10000):
+def load_data(source_dir, input_file, scale=None, arena_dim=None, debug=False, debug_ants=5, debug_timesteps=10000,
+              time_window=None):
     """
     Load data from a compressed pickle file.
     
@@ -41,10 +42,19 @@ def load_data(source_dir, input_file, scale=None, arena_dim=None, debug=False, d
         debug: If True, only load subset of ants
         debug_ants: Number of ants to load in debug mode
         debug_timesteps: Number of timesteps to load in debug mode
+        time_window: Tuple of (start_min, end_min) to filter data by time window
     """
     data = None
     with lzma.open(os.path.join(source_dir, input_file)) as file:
         data = pd.read_pickle(file)
+    
+    if time_window:
+        start_min, end_min = time_window
+        # Convert minutes to frames
+        fps = VIDEO_FPS / (scale if scale else 1)
+        start_frame = int(start_min * 60 * fps)
+        end_frame = int(end_min * 60 * fps)
+        data = data.iloc[start_frame:end_frame]
     
     if debug:
         # Limit timesteps first
@@ -1313,6 +1323,10 @@ def main():
                       help='Temporal downsampling factor')
     parser.add_argument('--debug', action='store_true',
                       help='Run in debug mode with subset of data')
+    parser.add_argument('--time_window_start', type=float, default=None,
+                      help='Start time of analysis window in minutes')
+    parser.add_argument('--time_window_end', type=float, default=None,
+                      help='End time of analysis window in minutes')
     args = parser.parse_args()
     
     # Create save directory
@@ -1321,8 +1335,14 @@ def main():
     
     # Load data
     print("Loading data...")
+    time_window = None
+    if args.time_window_start is not None and args.time_window_end is not None:
+        time_window = (args.time_window_start, args.time_window_end)
+        print(f"Analyzing time window: {args.time_window_start}-{args.time_window_end} minutes")
+    
     data = load_data(args.data_dir, args.input_file, 
-                    scale=args.scale, debug=args.debug)
+                    scale=args.scale, debug=args.debug,
+                    time_window=time_window)
     
     # Process ant data
     print("\nProcessing ant trajectories...")
@@ -1344,10 +1364,15 @@ def main():
     # Save results
     print("\nSaving results...")
     
+    # Create time window specific filename suffix
+    suffix = ''
+    if args.time_window_start is not None and args.time_window_end is not None:
+        suffix = f'_{int(args.time_window_start)}-{int(args.time_window_end)}min'
+    
     # Save state vectors and reduced states
-    np.save(save_dir / 'state_vectors.npy', 
+    np.save(save_dir / f'state_vectors{suffix}.npy', 
             analysis_results['state_vectors'])
-    np.save(save_dir / 'reduced_states.npy', 
+    np.save(save_dir / f'reduced_states{suffix}.npy', 
             analysis_results['reduced_states'])
     
     # Save transition probabilities
