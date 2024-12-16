@@ -1176,11 +1176,25 @@ def integrate_state_space_analysis(processed_data: Dict,
     
     # Print PCA analysis results
     print("\nPCA Analysis Results:")
-    print("Explained variance ratios:", pca_analysis['explained_variance'][:3])
+    print(f"Total variance explained by first 3 components: {sum(pca_analysis['explained_variance'][:3])*100:.1f}%")
+    print("\nComponent-wise explained variance:")
+    for i, var in enumerate(pca_analysis['explained_variance'][:3]):
+        print(f"PC{i+1}: {var*100:.1f}%")
+    
+    # Interpret the components
+    interpretations = {
+        'PC1': "Spatial distribution and movement intensity",
+        'PC2': "Movement variability and neighbor distance fluctuations",
+        'PC3': "Path complexity and turning behavior"
+    }
+    
     for pc, contributors in pca_analysis['top_contributors'].items():
-        print(f"\n{pc} top contributors:")
+        print(f"\n{pc} - {interpretations[pc]}:")
+        print("Feature                  Loading    Effect")
+        print("-" * 45)
         for feature, loading in contributors:
-            print(f"{feature}: {loading:.3f}")
+            direction = "increases" if loading > 0 else "decreases"
+            print(f"{feature:<22} {abs(loading):>7.3f}    {direction}")
     
     print("Analyzing trajectories...")
     # Analyse trajectories through state space
