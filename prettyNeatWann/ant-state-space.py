@@ -1088,6 +1088,45 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_dista
     return clustering_stats
 
 
+def generate_pc_interpretation(component_loadings: List[Tuple[str, float]]) -> str:
+    """Generate interpretation of a principal component based on its top loadings."""
+    # Group features by type
+    spatial_features = {'mean_neighbor_dist', 'max_neighbor_dist', 'min_neighbor_dist', 'std_neighbor_dist'}
+    movement_features = {'mean_movement', 'std_movement', 'mean_velocity', 'mean_acceleration'}
+    turning_features = {'mean_curvature', 'std_curvature', 'mean_turn_rate'}
+    clustering_features = {'n_clusters', 'mean_cluster_size', 'cluster_density'}
+    
+    # Get absolute loadings and their signs
+    feature_contributions = {
+        'spatial': [],
+        'movement': [],
+        'turning': [],
+        'clustering': []
+    }
+    
+    for feature, loading in component_loadings:
+        if feature in spatial_features:
+            feature_contributions['spatial'].append((feature, loading))
+        elif feature in movement_features:
+            feature_contributions['movement'].append((feature, loading))
+        elif feature in turning_features:
+            feature_contributions['turning'].append((feature, loading))
+        elif feature in clustering_features:
+            feature_contributions['clustering'].append((feature, loading))
+    
+    # Determine dominant aspects
+    interpretation_parts = []
+    for aspect, contributions in feature_contributions.items():
+        if contributions:
+            # Calculate mean absolute contribution for this aspect
+            mean_contrib = np.mean([abs(loading) for _, loading in contributions])
+            if mean_contrib > 0.2:  # Threshold for significance
+                # Determine if this aspect generally increases or decreases
+                direction = "increases" if np.mean([loading for _, loading in contributions]) > 0 else "decreases"
+                interpretation_parts.append(f"{aspect} {direction}")
+    
+    return " and ".join(interpretation_parts) if interpretation_parts else "mixed effects"
+
 def integrate_state_space_analysis(processed_data: Dict,
                                 clustering_stats: Dict,
                                 fps: float = 60.0,
@@ -1181,11 +1220,10 @@ def integrate_state_space_analysis(processed_data: Dict,
     for i, var in enumerate(pca_analysis['explained_variance'][:3]):
         print(f"PC{i+1}: {var*100:.1f}%")
     
-    # Interpret the components
+    # Generate dynamic interpretations based on PCA results
     interpretations = {
-        'PC1': "Spatial distribution and movement intensity",
-        'PC2': "Movement variability and neighbor distance fluctuations",
-        'PC3': "Path complexity and turning behavior"
+        f'PC{i+1}': generate_pc_interpretation(contributors)
+        for i, (pc, contributors) in enumerate(pca_analysis['top_contributors'].items())
     }
     
     for pc, contributors in pca_analysis['top_contributors'].items():
