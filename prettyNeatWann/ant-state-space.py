@@ -790,47 +790,55 @@ class BehaviouralTrajectoryAnalyser:
     
     def find_common_paths(self, 
                          window_size: int = 60,  # 1 second at 60fps
-                         min_occurrences: int = 3) -> List[np.ndarray]:
+                         min_occurrences: int = 3,
+                         batch_size: int = 1000) -> List[np.ndarray]:
         """
-        Find common trajectories through state space using sliding windows.
+        Find common trajectories through state space using sliding windows and batched processing.
         
         Args:
             window_size: Size of window for trajectory segments
             min_occurrences: Minimum number of times a pattern must occur
+            batch_size: Size of batches for processing
             
         Returns:
             List of common trajectory segments
         """
-        n_timesteps = len(self.reduced_states)
-        trajectory_segments = []
-        
-        # Extract all trajectory segments
-        for i in range(n_timesteps - window_size):
-            segment = self.reduced_states[i:i + window_size]
-            trajectory_segments.append(segment)
-        
-        # Cluster similar segments
         from sklearn.cluster import DBSCAN
+        import gc  # For garbage collection
         
-        # Reshape segments for clustering
-        segments_array = np.array(trajectory_segments)
-        n_segments = len(segments_array)
-        reshaped_segments = segments_array.reshape(n_segments, -1)
-        
-        # Cluster segments
-        clustering = DBSCAN(eps=0.5, min_samples=min_occurrences).fit(reshaped_segments)
-        labels = clustering.labels_
-        
-        # Extract representative segments for each cluster
+        n_timesteps = len(self.reduced_states)
         common_paths = []
-        unique_labels = set(labels)
         
-        for label in unique_labels:
-            if label >= 0:  # Ignore noise points
-                cluster_segments = segments_array[labels == label]
-                # Use mean as representative
-                representative = np.mean(cluster_segments, axis=0)
-                common_paths.append(representative)
+        # Process in batches
+        for batch_start in range(0, n_timesteps - window_size, batch_size):
+            batch_end = min(batch_start + batch_size, n_timesteps - window_size)
+            
+            # Extract segments for this batch
+            batch_segments = []
+            for i in range(batch_start, batch_end):
+                segment = self.reduced_states[i:i + window_size]
+                batch_segments.append(segment)
+            
+            # Convert to array and reshape for clustering
+            segments_array = np.array(batch_segments)
+            n_segments = len(segments_array)
+            reshaped_segments = segments_array.reshape(n_segments, -1)
+            
+            # Cluster segments in this batch
+            clustering = DBSCAN(eps=0.5, min_samples=min_occurrences).fit(reshaped_segments)
+            labels = clustering.labels_
+            
+            # Extract representatives from this batch
+            unique_labels = set(labels)
+            for label in unique_labels:
+                if label >= 0:  # Ignore noise points
+                    cluster_segments = segments_array[labels == label]
+                    representative = np.mean(cluster_segments, axis=0)
+                    common_paths.append(representative)
+            
+            # Clean up memory
+            del segments_array, reshaped_segments
+            gc.collect()
         
         return common_paths
     
@@ -889,13 +897,15 @@ class BehaviouralTrajectoryAnalyser:
     
     def identify_behavioral_motifs(self, 
                                  window_size: int = 60,
-                                 n_motifs: int = 5) -> List[np.ndarray]:
+                                 n_motifs: int = 5,
+                                 batch_size: int = 1000) -> List[np.ndarray]:
         """
-        Identify recurring behavioral motifs using time series motif discovery.
+        Identify recurring behavioral motifs using time series motif discovery with batched processing.
         
         Args:
             window_size: Size of window for motif detection
             n_motifs: Number of motifs to identify
+            batch_size: Size of batches for processing
             
         Returns:
             List of behavioral motifs
@@ -905,50 +915,50 @@ class BehaviouralTrajectoryAnalyser:
         motifs = []
         n_timesteps = len(self.reduced_states)
         
-        # Compute distance matrix for all possible segments
-        segments = np.array([
-            self.reduced_states[i:i + window_size] 
-            for i in range(n_timesteps - window_size)
-        ])
-        
-        # For each dimension in the reduced space
+        # Process each dimension separately to reduce memory usage
         for dim in range(self.reduced_states.shape[1]):
-            # Extract segments for this dimension
-            dim_segments = segments[:, :, dim]
-            
-            # Compute similarity matrix
-            similarity_matrix = np.zeros((len(dim_segments), len(dim_segments)))
-            for i in range(len(dim_segments)):
-                for j in range(i + window_size, len(dim_segments)):
-                    distance = np.linalg.norm(dim_segments[i] - dim_segments[j])
-                    similarity_matrix[i, j] = -distance
-            
-            # Find peaks in similarity matrix
-            peaks = []
-            for i in range(len(similarity_matrix)):
-                row_peaks, _ = find_peaks(similarity_matrix[i], distance=window_size)
-                peaks.extend([(i, j) for j in row_peaks])
-            
-            # Sort peaks by similarity value
-            peaks.sort(key=lambda x: similarity_matrix[x[0], x[1]], reverse=True)
-            
-            # Extract top motifs
             dim_motifs = []
             covered_indices = set()
             
-            for start_idx, end_idx in peaks:
-                if (start_idx not in covered_indices and 
-                    end_idx not in covered_indices and 
-                    len(dim_motifs) < n_motifs):
-                    # Add both segments as a motif pair
-                    motif_pair = (dim_segments[start_idx], dim_segments[end_idx])
-                    dim_motifs.append(motif_pair)
+            # Process in batches
+            for batch_start in range(0, n_timesteps - window_size, batch_size):
+                batch_end = min(batch_start + batch_size, n_timesteps - window_size)
+                
+                # Extract segments for this batch
+                batch_segments = np.array([
+                    self.reduced_states[i:i + window_size, dim] 
+                    for i in range(batch_start, batch_end)
+                ])
+                
+                # Find similar segments within batch
+                for i in range(len(batch_segments)):
+                    if len(dim_motifs) >= n_motifs:
+                        break
+                        
+                    if (batch_start + i) in covered_indices:
+                        continue
                     
-                    # Mark indices as covered
-                    for i in range(start_idx, start_idx + window_size):
-                        covered_indices.add(i)
-                    for i in range(end_idx, end_idx + window_size):
-                        covered_indices.add(i)
+                    # Compare with other segments
+                    for j in range(i + window_size, len(batch_segments)):
+                        if (batch_start + j) in covered_indices:
+                            continue
+                            
+                        distance = np.linalg.norm(batch_segments[i] - batch_segments[j])
+                        if distance < 0.5:  # Similarity threshold
+                            # Add motif pair
+                            motif_pair = (batch_segments[i], batch_segments[j])
+                            dim_motifs.append(motif_pair)
+                            
+                            # Mark indices as covered
+                            for idx in range(batch_start + i, batch_start + i + window_size):
+                                covered_indices.add(idx)
+                            for idx in range(batch_start + j, batch_start + j + window_size):
+                                covered_indices.add(idx)
+                            
+                            break
+                    
+                    if len(dim_motifs) >= n_motifs:
+                        break
             
             motifs.append(dim_motifs)
         
