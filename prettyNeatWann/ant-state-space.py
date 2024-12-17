@@ -1352,7 +1352,8 @@ def visualise_state_space(analysis_results: Dict,
                     cmap='Blues',
                     interpolation='nearest',
                     vmin=0.0,
-                    vmax=1.0)
+                    vmax=1.0,
+                    origin='lower')
     plt.colorbar(im, label='Transition Probability')
     ax2.set_title('State Transition Probabilities')
     
