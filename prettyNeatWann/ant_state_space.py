@@ -9,8 +9,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from state_analyser import StateAnalyser, compute_state_transitions
-
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
@@ -725,7 +723,7 @@ class BehaviouralStateExtractor:
         # Apply PCA
         reduced_vectors = self.pca.fit_transform(scaled_vectors)
         
-        # Analyze PCA components
+        # Analyse PCA components
         feature_names = [
             'mean_velocity', 'std_velocity', 
             'mean_acceleration', 'std_acceleration',
@@ -745,7 +743,7 @@ class BehaviouralStateExtractor:
         loadings = self.pca.components_
         explained_variance = self.pca.explained_variance_ratio_
         
-        # Analyze top contributors for each component
+        # Analyse top contributors for each component
         pca_analysis = {
             'feature_names': feature_names,
             'loadings': loadings,
@@ -753,7 +751,7 @@ class BehaviouralStateExtractor:
             'top_contributors': {}
         }
         
-        for i, component in enumerate(loadings[:3]):  # Analyze first 3 components
+        for i, component in enumerate(loadings[:3]):  # Analyse first 3 components
             sorted_idx = np.argsort(np.abs(component))[::-1]
             pca_analysis['top_contributors'][f'PC{i+1}'] = [
                 (feature_names[idx], component[idx])
@@ -1266,7 +1264,7 @@ def integrate_state_space_analysis(processed_data: Dict,
             direction = "increases" if loading > 0 else "decreases"
             print(f"{feature:<22} {abs(loading):>7.3f}    {direction}")
     
-    print("Analyzing trajectories...")
+    print("Analysing trajectories...")
     # Analyse trajectories through state space
     trajectory_analyser = BehaviouralTrajectoryAnalyser(reduced_states)
     
@@ -1303,7 +1301,7 @@ def visualise_state_space(analysis_results: Dict,
     
     Args:
         analysis_results: Results from state space analysis
-        save_path: Optional path to save visualizations
+        save_path: Optional path to save visualisations
     """
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
@@ -1484,7 +1482,7 @@ def main():
     time_window = None
     if args.time_window_start is not None and args.time_window_end is not None:
         time_window = (args.time_window_start, args.time_window_end)
-        print(f"Analyzing time window: {args.time_window_start}-{args.time_window_end} minutes")
+        print(f"Analysing time window: {args.time_window_start}-{args.time_window_end} minutes")
     
     data = load_data(args.data_dir, args.input_file, 
                     scale=args.scale, debug=args.debug,
@@ -1507,28 +1505,10 @@ def main():
         scale=args.scale
     )
     
-    # Create time window specific filename suffix
-    suffix = ''
-    if args.time_window_start is not None and args.time_window_end is not None:
-        suffix = f'_{int(args.time_window_start)}-{int(args.time_window_end)}min'
-
-    # Perform state analysis
-    print("\nPerforming state analysis...")
-    analyser = StateAnalyser()
-    characteristics = analyser.compute_state_characteristics(processed_data, clustering_stats)
-    transitions = compute_state_transitions(processed_data, analyser)
-    
-    # Generate state analysis visualization
-    analyser.visualise_state_characteristics(str(save_dir / f'state_analysis{suffix}.png'))
-    
-    # Save state analysis results
-    with open(save_dir / f'state_characteristics{suffix}.pkl', 'wb') as f:
-        pickle.dump(characteristics, f)
-    with open(save_dir / f'state_transitions{suffix}.pkl', 'wb') as f:
-        pickle.dump(transitions, f)
-
-    # Save other results
+    # Save results
     print("\nSaving results...")
+    
+    # Create time window specific filename suffix
     suffix = ''
     if args.time_window_start is not None and args.time_window_end is not None:
         suffix = f'_{int(args.time_window_start)}-{int(args.time_window_end)}min'
@@ -1554,8 +1534,8 @@ def main():
     ], dtype=object)
     np.save(save_dir / f'behavioural_motifs{suffix}.npy', motifs_array)
     
-    # Create visualizations
-    print("\nGenerating visualizations...")
+    # Create visualisations
+    print("\nGenerating visualisations...")
     # Create filename with time window
     vis_filename = 'state_space_visualisation'
     if args.time_window_start is not None and args.time_window_end is not None:
