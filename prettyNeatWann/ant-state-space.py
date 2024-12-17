@@ -139,6 +139,18 @@ class AntFeatureExtractor:
         angular_velocities = np.zeros(n_points, dtype=np.float64)
         curvatures = np.zeros(n_points, dtype=np.float64)
         
+        # Check if we have enough points for gradient calculation
+        if len(x_clean) < 2:  # Need at least 2 points for gradient
+            return TrajectoryFeatures(
+                velocities=np.zeros((0, 2)),
+                accelerations=np.zeros((0, 2)),
+                angular_velocities=np.zeros(0),
+                curvatures=np.zeros(0),
+                stop_segments=[],
+                move_segments=[],
+                bout_durations={'move': np.array([]), 'stop': np.array([])}
+            )
+            
         # Compute velocities
         dx = np.gradient(x_clean, self.dt)
         dy = np.gradient(y_clean, self.dt)
