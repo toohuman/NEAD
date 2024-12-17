@@ -809,8 +809,11 @@ class BehaviouralTrajectoryAnalyser:
         n_timesteps = len(self.reduced_states)
         common_paths = []
         
-        # Process in batches
-        for batch_start in range(0, n_timesteps - window_size, batch_size):
+        # Process in batches with progress bar
+        n_batches = (n_timesteps - window_size) // batch_size + 1
+        for batch_start in tqdm(range(0, n_timesteps - window_size, batch_size),
+                               desc="Finding common paths",
+                               total=n_batches):
             batch_end = min(batch_start + batch_size, n_timesteps - window_size)
             
             # Extract segments for this batch
