@@ -1518,8 +1518,13 @@ def main():
     # Save common paths and motifs
     np.save(save_dir / 'common_paths.npy',
             analysis_results['common_paths'])
-    np.save(save_dir / 'behavioural_motifs.npy',
-            analysis_results['behavioural_motifs'])
+    
+    # Convert behavioural motifs to a consistent shape before saving
+    motifs_array = np.array([
+        np.array([pair[0] for pair in dim_motifs], dtype=object)
+        for dim_motifs in analysis_results['behavioural_motifs']
+    ], dtype=object)
+    np.save(save_dir / 'behavioural_motifs.npy', motifs_array)
     
     # Create visualizations
     print("\nGenerating visualizations...")
