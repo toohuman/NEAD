@@ -1330,9 +1330,15 @@ def visualise_state_space(analysis_results: Dict,
                 linewidth=2,
                 alpha=0.8)
     
-    ax1.set_xlabel('PC1')
-    ax1.set_ylabel('PC2')
-    ax1.set_zlabel('PC3')
+    # Get interpretations for axis labels
+    pc_interpretations = {
+        f'PC{i+1}': generate_pc_interpretation(contributors)
+        for i, (pc, contributors) in enumerate(analysis_results['pca_analysis']['top_contributors'].items())
+    }
+    
+    ax1.set_xlabel(f'PC1 ({pc_interpretations["PC1"]})')
+    ax1.set_ylabel(f'PC2 ({pc_interpretations["PC2"]})')
+    ax1.set_zlabel(f'PC3 ({pc_interpretations["PC3"]})')
     ax1.set_title('Behavioural State Space')
     
     # Transition probability heatmap
