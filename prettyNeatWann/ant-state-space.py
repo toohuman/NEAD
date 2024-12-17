@@ -1513,11 +1513,11 @@ def main():
             analysis_results['reduced_states'])
     
     # Save transition probabilities
-    np.save(save_dir / 'transition_probabilities.npy',
+    np.save(save_dir / f'transition_probabilities{suffix}.npy',
             analysis_results['transition_probabilities'])
     
     # Save common paths and motifs
-    np.save(save_dir / 'common_paths.npy',
+    np.save(save_dir / f'common_paths{suffix}.npy',
             analysis_results['common_paths'])
     
     # Convert behavioural motifs to a consistent shape before saving
@@ -1525,7 +1525,7 @@ def main():
         np.array([pair[0] for pair in dim_motifs], dtype=object)
         for dim_motifs in analysis_results['behavioural_motifs']
     ], dtype=object)
-    np.save(save_dir / 'behavioural_motifs.npy', motifs_array)
+    np.save(save_dir / f'behavioural_motifs{suffix}.npy', motifs_array)
     
     # Create visualizations
     print("\nGenerating visualizations...")
