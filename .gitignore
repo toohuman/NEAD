@@ -166,4 +166,5 @@ nohup.out
 
 log/
 data/
+*.npy
 .aider*
