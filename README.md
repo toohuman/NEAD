@@ -1,8 +1,8 @@
 # NeuroEvolution of Ant Dynamics (NEAD)
 
 ## Authors
-- Michael Crosscombe (@toohuman)
-- Ilya Horiguchi
+- Michael Crosscombe ([@toohuman](https://github.com/toohuman))
+- Ilya Horiguchi ([@NeoGendaijin](https://github.com/NeoGendaijin))
 
 ## Project Overview
 The purpose of this project is to evolve neural networks that can accurately reproduce realistic ant dynamics and, eventually, colony-level collective behaviours.
