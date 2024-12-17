@@ -1507,6 +1507,11 @@ def main():
         scale=args.scale
     )
     
+    # Create time window specific filename suffix
+    suffix = ''
+    if args.time_window_start is not None and args.time_window_end is not None:
+        suffix = f'_{int(args.time_window_start)}-{int(args.time_window_end)}min'
+
     # Perform state analysis
     print("\nPerforming state analysis...")
     analyser = StateAnalyser()
@@ -1524,8 +1529,6 @@ def main():
 
     # Save other results
     print("\nSaving results...")
-    
-    # Create time window specific filename suffix 
     suffix = ''
     if args.time_window_start is not None and args.time_window_end is not None:
         suffix = f'_{int(args.time_window_start)}-{int(args.time_window_end)}min'
