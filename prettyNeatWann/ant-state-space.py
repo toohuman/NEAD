@@ -1529,8 +1529,14 @@ def main():
     
     # Create visualizations
     print("\nGenerating visualizations...")
+    # Create filename with time window
+    vis_filename = 'state_space_visualisation'
+    if args.time_window_start is not None and args.time_window_end is not None:
+        vis_filename += f'_{int(args.time_window_start)}-{int(args.time_window_end)}min'
+    vis_filename += '.png'
+    
     visualise_state_space(analysis_results,
-                         save_path=str(save_dir / 'state_space_visualization.png'))
+                         save_path=str(save_dir / vis_filename))
     
     print("\nAnalysis complete! Results saved to:", save_dir)
 
