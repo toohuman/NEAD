@@ -9,6 +9,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from state_analyser import StateAnalyser, compute_state_transitions
+
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
@@ -1505,10 +1507,25 @@ def main():
         scale=args.scale
     )
     
-    # Save results
+    # Perform state analysis
+    print("\nPerforming state analysis...")
+    analyser = StateAnalyser()
+    characteristics = analyser.compute_state_characteristics(processed_data, clustering_stats)
+    transitions = compute_state_transitions(processed_data, analyser)
+    
+    # Generate state analysis visualization
+    analyser.visualise_state_characteristics(str(save_dir / f'state_analysis{suffix}.png'))
+    
+    # Save state analysis results
+    with open(save_dir / f'state_characteristics{suffix}.pkl', 'wb') as f:
+        pickle.dump(characteristics, f)
+    with open(save_dir / f'state_transitions{suffix}.pkl', 'wb') as f:
+        pickle.dump(transitions, f)
+
+    # Save other results
     print("\nSaving results...")
     
-    # Create time window specific filename suffix
+    # Create time window specific filename suffix 
     suffix = ''
     if args.time_window_start is not None and args.time_window_end is not None:
         suffix = f'_{int(args.time_window_start)}-{int(args.time_window_end)}min'
