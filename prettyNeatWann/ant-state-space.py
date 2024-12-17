@@ -1,21 +1,24 @@
+import argparse
+import json
+import lzma
+import os
+import pickle
+import time
+import warnings
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from scipy import stats
-from dataclasses import dataclass, asdict
-from tqdm import tqdm
-from typing import Any, Dict, List, Tuple, Optional
-import numpy.typing as npt
-import lzma
-import pickle
-import os
-import time
-import json
-import argparse
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
 from scipy.spatial import ConvexHull
 from scipy.stats import gaussian_kde
-import warnings
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from tqdm import tqdm
+
 warnings.filterwarnings('ignore')
 
 # Constants for biological sanity checks
@@ -763,7 +766,7 @@ class BehaviouralStateExtractor:
                           ) -> Tuple[np.ndarray, List[List[int]]]:
         """Analyse the structure of the behavioural state space."""
         from sklearn.cluster import DBSCAN
-        
+
         # Identify dense regions in state space
         clustering = DBSCAN(eps=0.5, min_samples=5).fit(reduced_states)
         labels = clustering.labels_
@@ -815,8 +818,9 @@ class BehaviouralTrajectoryAnalyser:
         Returns:
             List of common trajectory segments
         """
-        from sklearn.cluster import DBSCAN
         import gc  # For garbage collection
+
+        from sklearn.cluster import DBSCAN
         
         n_timesteps = len(self.reduced_states)
         common_paths = []
@@ -995,8 +999,8 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_dista
     Returns:
         Dictionary containing clustering statistics over time
     """
-    from sklearn.cluster import DBSCAN
     from scipy.spatial.distance import cdist
+    from sklearn.cluster import DBSCAN
     
     eps_pixels = eps_mm * PIXELS_PER_MM
     
@@ -1301,7 +1305,7 @@ def visualise_state_space(analysis_results: Dict,
     """
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
-    
+
     # Create figure with subplots
     fig = plt.figure(figsize=(20, 10))
     
@@ -1448,9 +1452,6 @@ def evaluate_behavioral_similarity(real_trajectories: np.ndarray,
 
 def main():
     """Main function to run the complete behavioural state space analysis."""
-    import argparse
-    import os
-    from pathlib import Path
     
     parser = argparse.ArgumentParser(description='Analyse ant behaviour using state space approach')
     parser.add_argument('--data_dir', type=str, default='data/2023_2/',
