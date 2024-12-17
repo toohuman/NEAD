@@ -910,12 +910,12 @@ class BehaviouralTrajectoryAnalyser:
         
         return transition_probs
     
-    def identify_behavioral_motifs(self, 
+    def identify_behavioural_motifs(self, 
                                  window_size: int = 60,
                                  n_motifs: int = 5,
                                  batch_size: int = 1000) -> List[np.ndarray]:
         """
-        Identify recurring behavioral motifs using time series motif discovery with batched processing.
+        Identify recurring behavioural motifs using time series motif discovery with batched processing.
         
         Args:
             window_size: Size of window for motif detection
@@ -931,7 +931,9 @@ class BehaviouralTrajectoryAnalyser:
         n_timesteps = len(self.reduced_states)
         
         # Process each dimension separately to reduce memory usage
-        for dim in range(self.reduced_states.shape[1]):
+        for dim in tqdm(range(self.reduced_states.shape[1]), 
+                      desc="Processing dimensions",
+                      leave=False):
             dim_motifs = []
             covered_indices = set()
             
@@ -1270,7 +1272,7 @@ def integrate_state_space_analysis(processed_data: Dict,
     transition_probs = trajectory_analyser.compute_transition_probabilities()
     
     print("Identifying behavioral motifs...")
-    behavioral_motifs = trajectory_analyser.identify_behavioral_motifs()
+    behavioural_motifs = trajectory_analyser.identify_behavioural_motifs()
     
     print("Calculating state space density...")
     # Calculate state space density
@@ -1282,7 +1284,7 @@ def integrate_state_space_analysis(processed_data: Dict,
         'reduced_states': reduced_states,
         'common_paths': common_paths,
         'transition_probabilities': transition_probs,
-        'behavioral_motifs': behavioral_motifs,
+        'behavioural_motifs': behavioural_motifs,
         'state_density': state_density,
         'pca_analysis': pca_analysis
     }
@@ -1516,8 +1518,8 @@ def main():
     # Save common paths and motifs
     np.save(save_dir / 'common_paths.npy',
             analysis_results['common_paths'])
-    np.save(save_dir / 'behavioral_motifs.npy',
-            analysis_results['behavioral_motifs'])
+    np.save(save_dir / 'behavioural_motifs.npy',
+            analysis_results['behavioural_motifs'])
     
     # Create visualizations
     print("\nGenerating visualizations...")
