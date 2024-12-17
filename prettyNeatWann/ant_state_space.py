@@ -1461,7 +1461,7 @@ def main():
     parser.add_argument('--input_file', type=str, 
                       default='KA050_processed_10cm_5h_20230614.pkl.xz',
                       help='Input data file name')
-    parser.add_argument('--save_dir', type=str, default='results/state_space',
+    parser.add_argument('--save_dir', type=str, default='analysis/state_space',
                       help='Directory to save results')
     parser.add_argument('--fps', type=float, default=60.0,
                       help='Frame rate of original video')

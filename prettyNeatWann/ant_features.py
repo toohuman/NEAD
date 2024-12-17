@@ -1,17 +1,17 @@
+import argparse
+import lzma
+import os
+import pickle
+import time
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from scipy import stats
-from dataclasses import dataclass, asdict
 from tqdm import tqdm
-from typing import Any, Dict, List, Tuple, Optional
-import numpy.typing as npt
-import lzma
-import pickle
-import os
-import time
-import json
-import argparse
-from pathlib import Path
 
 # Constants for biological sanity checks
 PIXELS_PER_MM = 8.64  # Based on 864px = 100mm arena diameter (accounting for 2% margin)
@@ -380,8 +380,8 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_dista
     Returns:
         Dictionary containing clustering statistics over time
     """
-    from sklearn.cluster import DBSCAN
     from scipy.spatial.distance import cdist
+    from sklearn.cluster import DBSCAN
     
     eps_pixels = eps_mm * PIXELS_PER_MM
     
@@ -657,9 +657,9 @@ def animate_clustering(clustering_stats: Dict[str, List],
         start_frame: First frame to include in animation
         end_frame: Last frame to include in animation (if None, uses last frame)
     """
-    import numpy as np
-    import matplotlib.pyplot as plt
     import matplotlib.animation as animation
+    import matplotlib.pyplot as plt
+    import numpy as np
     from matplotlib.colors import LinearSegmentedColormap
 
     # Adjust time calculations based on SCALE
