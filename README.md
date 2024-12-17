@@ -1,7 +1,7 @@
 # NeuroEvolution of Ant Dynamics (NEAD)
 
 ## Authors
-- Michael Crosscombe
+- Michael Crosscombe (@toohuman)
 - Ilya Horiguchi
 
 ## Project Overview
