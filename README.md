@@ -1,7 +1,6 @@
 # NeuroEvolution of Ant Dynamics (NEAD)
-
+# cCan you center the title and the arxiv link? AI!
 [![arXiv](https://img.shields.io/badge/paper-arxiv-red?style=for-the-badge)](https://arxiv.org)
-<img src="https://img.shields.io/badge/paper-arxiv-red?style=for-the-badge" alt="TensorNEAT Paper on arXiv">
 
 ## Authors
 - Michael Crosscombe ([@toohuman](https://github.com/toohuman))
