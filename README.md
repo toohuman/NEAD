@@ -1,5 +1,5 @@
 # NeuroEvolution of Ant Dynamics (NEAD)
-# cCan you center the title and the arxiv link? AI!
+
 [![arXiv](https://img.shields.io/badge/paper-arxiv-red?style=for-the-badge)](https://arxiv.org)
 
 ## Authors
