@@ -1294,45 +1294,43 @@ def integrate_state_space_analysis(processed_data: Dict,
     }
 
 
-def visualise_state_space(analysis_results: Dict,
-                         save_path: Optional[str] = None):
+def visualise_state_space_3d(analysis_results: Dict,
+                            save_path: Optional[str] = None):
     """
-    Visualise the behavioural state space and trajectories.
+    Visualise the 3D behavioural state space and trajectories.
     
     Args:
         analysis_results: Results from state space analysis
-        save_path: Optional path to save visualisations
+        save_path: Optional path to save visualisation
     """
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
 
-    # Create figure with subplots
-    fig = plt.figure(figsize=(20, 10))
-    
-    # 3D state space plot
-    ax1 = fig.add_subplot(121, projection='3d')
+    # Create figure
+    fig = plt.figure(figsize=(12, 10))
+    ax = fig.add_subplot(111, projection='3d')
     reduced_states = analysis_results['reduced_states']
     
     # Plot points colored by density (using only first 3 dimensions for consistency)
     density_estimator = gaussian_kde(reduced_states[:, :3].T)
     density = density_estimator(reduced_states[:, :3].T)
-    scatter = ax1.scatter(reduced_states[:, 0],
-                         reduced_states[:, 1],
-                         reduced_states[:, 2],
-                         c=density,
-                         cmap='viridis',
-                         alpha=0.6)
+    scatter = ax.scatter(reduced_states[:, 0],
+                        reduced_states[:, 1],
+                        reduced_states[:, 2],
+                        c=density,
+                        cmap='viridis',
+                        alpha=0.6)
     plt.colorbar(scatter, label='State Density')
     
     # Plot common paths
     common_paths = analysis_results['common_paths']
     for path in common_paths:
-        ax1.plot(path[:, 0],
-                path[:, 1],
-                path[:, 2],
-                'r-',
-                linewidth=2,
-                alpha=0.8)
+        ax.plot(path[:, 0],
+               path[:, 1],
+               path[:, 2],
+               'r-',
+               linewidth=2,
+               alpha=0.8)
     
     # Get interpretations for axis labels
     pc_interpretations = {
@@ -1340,13 +1338,32 @@ def visualise_state_space(analysis_results: Dict,
         for i, (pc, contributors) in enumerate(analysis_results['pca_analysis']['top_contributors'].items())
     }
     
-    ax1.set_xlabel(f'PC1 ({pc_interpretations["PC1"]})')
-    ax1.set_ylabel(f'PC2 ({pc_interpretations["PC2"]})')
-    ax1.set_zlabel(f'PC3 ({pc_interpretations["PC3"]})')
-    ax1.set_title('Behavioural State Space')
+    ax.set_xlabel(f'PC1 ({pc_interpretations["PC1"]})')
+    ax.set_ylabel(f'PC2 ({pc_interpretations["PC2"]})')
+    ax.set_zlabel(f'PC3 ({pc_interpretations["PC3"]})')
+    ax.set_title('Behavioural State Space')
     
-    # Transition probability heatmap
-    ax2 = fig.add_subplot(122)
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path)
+    plt.show()
+
+def visualise_transition_probs(analysis_results: Dict,
+                             save_path: Optional[str] = None):
+    """
+    Visualise the state transition probability matrix.
+    
+    Args:
+        analysis_results: Results from state space analysis
+        save_path: Optional path to save visualisation
+    """
+    import matplotlib.pyplot as plt
+    
+    # Create figure
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111)
+    
     transition_probs = analysis_results['transition_probabilities']
     
     # Handle NaN and Inf values
@@ -1358,14 +1375,17 @@ def visualise_state_space(analysis_results: Dict,
                                where=row_sums!=0, 
                                out=np.zeros_like(transition_probs))
     
-    im = ax2.imshow(transition_probs,
-                    cmap='Blues',
-                    interpolation='nearest',
-                    vmin=0.0,
-                    vmax=1.0,
-                    origin='lower')
+    im = ax.imshow(transition_probs,
+                   cmap='Blues',
+                   interpolation='nearest',
+                   vmin=0.0,
+                   vmax=1.0,
+                   origin='lower')
     plt.colorbar(im, label='Transition Probability')
-    ax2.set_title('State Transition Probabilities')
+    
+    ax.set_xlabel('Next State')
+    ax.set_ylabel('Current State')
+    ax.set_title('State Transition Probabilities')
     
     plt.tight_layout()
     
@@ -1536,14 +1556,21 @@ def main():
     
     # Create visualisations
     print("\nGenerating visualisations...")
-    # Create filename with time window
-    vis_filename = 'state_space_visualisation'
-    if args.time_window_start is not None and args.time_window_end is not None:
-        vis_filename += f'_{int(args.time_window_start)}-{int(args.time_window_end)}min'
-    vis_filename += '.png'
     
-    visualise_state_space(analysis_results,
-                         save_path=str(save_dir / vis_filename))
+    # Create filenames with time window
+    time_suffix = ''
+    if args.time_window_start is not None and args.time_window_end is not None:
+        time_suffix = f'_{int(args.time_window_start)}-{int(args.time_window_end)}min'
+    
+    # Save behavioral state space plot
+    state_space_file = f'behavioural_state_space{time_suffix}.png'
+    visualise_state_space_3d(analysis_results,
+                            save_path=str(save_dir / state_space_file))
+    
+    # Save state transition probabilities plot  
+    trans_prob_file = f'state_trans_probs{time_suffix}.png'
+    visualise_transition_probs(analysis_results,
+                             save_path=str(save_dir / trans_prob_file))
     
     print("\nAnalysis complete! Results saved to:", save_dir)
 
