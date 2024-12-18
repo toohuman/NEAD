@@ -1,6 +1,6 @@
 # NeuroEvolution of Ant Dynamics (NEAD)
 
-//Can you add this arXiv image so that I can link relevant arXiv papers? AI!
+[![arXiv](https://img.shields.io/badge/paper-arxiv-red?style=for-the-badge)](https://arxiv.org)
 <img src="https://img.shields.io/badge/paper-arxiv-red?style=for-the-badge" alt="TensorNEAT Paper on arXiv">
 
 ## Authors
