@@ -809,22 +809,60 @@ class StateAnalyser:
     """Analyse and classify behavioural states"""
     
     def __init__(self, 
-                 velocity_thresholds: Tuple[float, float] = (0.5, 2.0),  # mm/s
-                 nn_thresholds: Tuple[float, float] = (5, 15),  # mm
-                 density_thresholds: Tuple[float, float] = (0.1, 0.3)):  # ants per mm^2
+                 velocity_thresholds: Tuple[float, float] = (1.0, 3.0),  # mm/s
+                 nn_thresholds: Tuple[float, float] = (10.0, 30.0),  # mm
+                 density_thresholds: Tuple[float, float] = (0.1, 0.3),  # ants per mm^2
+                 turning_threshold: float = 0.1):  # rad/s
         """
         Initialize the state analyser with thresholds for classification
         
         Args:
-            velocity_thresholds: (low, high) thresholds for velocity classification
-            nn_thresholds: (close, far) thresholds for nearest neighbour classification
+            velocity_thresholds: (slow, fast) thresholds for velocity classification in mm/s
+            nn_thresholds: (clustered, isolated) thresholds for nearest neighbour classification in mm
             density_thresholds: (sparse, dense) thresholds for local density classification
+            turning_threshold: threshold for high/low turning rate classification in rad/s
         """
         self.velocity_thresholds = velocity_thresholds
         self.nn_thresholds = nn_thresholds
         self.density_thresholds = density_thresholds
+        self.turning_threshold = turning_threshold
         self.state_characteristics = {}
+        self.state_labels = {}
         
+    def label_state(self, velocity_mean: float, nn_distance_mean: float, 
+                   turning_rate_mean: float) -> str:
+        """
+        Generate descriptive label for a behavioural state based on its characteristics.
+        
+        Args:
+            velocity_mean: Mean velocity in mm/s
+            nn_distance_mean: Mean nearest neighbor distance in mm
+            turning_rate_mean: Mean turning rate in rad/s
+            
+        Returns:
+            Descriptive label combining movement and social aspects
+        """
+        # Determine movement category
+        if velocity_mean < self.velocity_thresholds[0]:
+            movement_label = "Stopped"
+        elif velocity_mean < self.velocity_thresholds[1]:
+            movement_label = "Slow"
+        else:
+            movement_label = "Fast"
+
+        # Determine social category
+        if nn_distance_mean < self.nn_thresholds[0]:
+            social_label = "Clustered"
+        elif nn_distance_mean < self.nn_thresholds[1]:
+            social_label = "Intermediate Spacing"
+        else:
+            social_label = "Isolated"
+
+        # Determine turning behavior
+        turning_label = "High Turning" if turning_rate_mean > self.turning_threshold else "Low Turning"
+
+        return f"{movement_label} and {social_label} ({turning_label})"
+
     def compute_state_characteristics(self, 
                                    processed_data: Dict,
                                    clustering_stats: Dict) -> Dict[int, StateCharacteristics]:
@@ -872,10 +910,22 @@ class StateAnalyser:
                 })
         
         # Compute summary statistics for each state
-        return {
+        # Compute characteristics
+        characteristics = {
             state_id: self._compute_summary_stats(instances)
             for state_id, instances in state_chars.items()
         }
+        
+        # Generate labels for each state
+        self.state_labels = {}
+        for state_id, stats in characteristics.items():
+            self.state_labels[state_id] = self.label_state(
+                stats.velocity_stats['mean'],
+                stats.social_stats['mean_nn_dist'],
+                stats.angular_velocity_stats['mean']
+            )
+        
+        return characteristics
     
     def _classify_state(self,
                        velocity: float,
