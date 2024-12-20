@@ -686,7 +686,7 @@ def animate_clustering(clustering_stats: Dict[str, List],
     print(f"Time compression: {frame_range/(len(sampled_frames)*1/fps):.1f}x speed")
     
     # Set up the figure and animation with extra width for legend
-    fig, ax = plt.subplots(figsize=(13, 10))
+    fig, ax = plt.subplots(figsize=(12, 10))
     
     # Create a custom colormap for clusters
     colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
