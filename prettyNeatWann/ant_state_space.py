@@ -8,6 +8,7 @@ import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
+import matplotlib.pyplot as plt
 import seaborn as sns
 
 import numpy as np
