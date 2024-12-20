@@ -810,7 +810,7 @@ class StateAnalyser:
     
     def __init__(self, 
                  velocity_thresholds: Tuple[float, float] = (0.5, 2.0),  # mm/s
-                 nn_thresholds: Tuple[float, float] = (10, 30),  # mm
+                 nn_thresholds: Tuple[float, float] = (5, 15),  # mm
                  density_thresholds: Tuple[float, float] = (0.1, 0.3)):  # ants per mm^2
         """
         Initialize the state analyser with thresholds for classification
