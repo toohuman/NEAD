@@ -990,10 +990,10 @@ class StateAnalyser:
         return basic_state
 
     def compute_state_characteristics(self, 
-                                   processed_data: Dict,
-                                   clustering_stats: Dict) -> Dict[int, StateCharacteristics]:
+                                processed_data: Dict,
+                                clustering_stats: Dict) -> Dict[int, StateCharacteristics]:
         """
-        Compute detailed characteristics for each observed state
+        Compute detailed characteristics for each observed state, now including behavioural patterns
         
         Args:
             processed_data: Dictionary containing processed ant trajectories
@@ -1003,6 +1003,7 @@ class StateAnalyser:
             Dictionary mapping state IDs to their characteristics
         """
         state_chars = {}
+        pattern_matcher = BehaviouralPattern()  # Create single instance of pattern matcher
         
         # For each ant's data
         for ant_id, ant_data in processed_data.items():
@@ -1035,21 +1036,34 @@ class StateAnalyser:
                     'social_features': social_features[i] if i < len(social_features) else None
                 })
         
-        # Compute summary statistics for each state
-        # Compute characteristics
-        characteristics = {
-            state_id: self._compute_summary_stats(instances)
-            for state_id, instances in state_chars.items()
-        }
+        # Compute summary statistics and identify patterns for each state
+        characteristics = {}
+        self.state_patterns = {}  # Store patterns in the class instance
+        
+        for state_id, instances in state_chars.items():
+            stats = self._compute_summary_stats(instances)
+            characteristics[state_id] = stats
+            
+            # Identify behavioural patterns for this state
+            patterns = pattern_matcher.identify_pattern(
+                velocity=stats.velocity_stats['mean'],
+                turning_rate=stats.angular_velocity_stats['mean'],
+                nn_distance=stats.social_stats['mean_nn_dist'],
+                duration=stats.duration
+            )
+            self.state_patterns[state_id] = patterns
         
         # Generate labels for each state
         self.state_labels = {}
         for state_id, stats in characteristics.items():
-            self.state_labels[state_id] = self.label_state(
+            patterns = self.state_patterns[state_id]
+            base_label = self.label_state(
                 stats.velocity_stats['mean'],
                 stats.social_stats['mean_nn_dist'],
                 stats.angular_velocity_stats['mean']
             )
+            pattern_str = f" ({', '.join(patterns)})" if patterns else ""
+            self.state_labels[state_id] = base_label + pattern_str
         
         return characteristics
     
