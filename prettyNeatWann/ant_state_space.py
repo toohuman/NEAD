@@ -86,7 +86,7 @@ class TrajectoryFeatures:
 
 
 class AntFeatureExtractor:
-    """Extract behavioural features from ant trajectory data using vectorized operations."""
+    """Extract behavioural features from ant trajectory data using vectorised operations."""
     
     def __init__(self, fps: float = 60.0, velocity_threshold: float = 0.5, max_position_change: float = 10.0, max_velocity_pixels: float = 100 * PIXELS_PER_MM):
         """
@@ -106,7 +106,7 @@ class AntFeatureExtractor:
     
     def extract_features(self, x: np.ndarray, y: np.ndarray) -> TrajectoryFeatures:
         """
-        Extract all trajectory features from position data using vectorized operations.
+        Extract all trajectory features from position data using vectorised operations.
         
         Args:
             x: Array of x positions
@@ -246,7 +246,7 @@ class AntFeatureExtractor:
 
 
 class SocialContextExtractor:
-    """Extract features related to social interactions using vectorized operations."""
+    """Extract features related to social interactions using vectorised operations."""
     
     def __init__(self, n_sectors: int = 8, max_distance: float = 100.0):
         """
@@ -263,7 +263,7 @@ class SocialContextExtractor:
     def compute_local_density(self, focal_x: float, focal_y: float, 
                             neighbour_x: np.ndarray, neighbour_y: np.ndarray) -> np.ndarray:
         """
-        Compute ant density in different sectors around focal ant using vectorized operations.
+        Compute ant density in different sectors around focal ant using vectorised operations.
         
         Args:
             focal_x: x-coordinate of focal ant
@@ -274,21 +274,26 @@ class SocialContextExtractor:
         Returns:
             Array of ant densities in each sector
         """
-        # Vectorized relative position calculation
+        # Vectorised relative position calculation
         rel_positions = np.column_stack([
             neighbour_x - focal_x,
             neighbour_y - focal_y
         ])
         
-        # Vectorized polar coordinate conversion
-        distances = np.linalg.norm(rel_positions, axis=1)
+        # Calculate distances in pixels
+        distances_px = np.linalg.norm(rel_positions, axis=1)
+        
+        # Convert distances to mm
+        distances_mm = distances_px / PIXELS_PER_MM
+
+        # Vectorised polar coordinate conversion
         angles = np.arctan2(rel_positions[:, 1], rel_positions[:, 0]) % (2*np.pi)
         
         # Pre-allocate density array
         densities = np.zeros(self.n_sectors, dtype=np.float64)
         
-        # Vectorized sector counting
-        in_range = distances <= self.max_distance
+        # Vectorised sector counting
+        in_range = distances_mm <= self.max_distance
         valid_angles = angles[in_range]
         
         # Use numpy's histogram function for efficient binning
@@ -304,8 +309,9 @@ class SocialContextExtractor:
                                      neighbour_x: np.ndarray, neighbour_y: np.ndarray,
                                      k: int = 3) -> Dict[str, float]:
         """Compute statistics about k nearest neighbours."""
-        distances = np.sqrt((neighbour_x - focal_x)**2 + (neighbour_y - focal_y)**2)
-        sorted_distances = np.sort(distances)
+        distances_px = np.sqrt((neighbour_x - focal_x)**2 + (neighbour_y - focal_y)**2)
+        distances_mm = distances_px / PIXELS_PER_MM
+        sorted_distances = np.sort(distances_mm)
         
         return {
             f'nn_dist_{i+1}': dist for i, dist in enumerate(sorted_distances[:k])
@@ -314,7 +320,7 @@ class SocialContextExtractor:
 
 def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
     """
-    Process all ant trajectories using vectorized operations and efficient memory management.
+    Process all ant trajectories using vectorised operations and efficient memory management.
     
     Args:
         data: DataFrame with MultiIndex columns (ant_id, coordinate)
@@ -423,6 +429,62 @@ class BehaviouralState:
     state_changes: np.ndarray  # Recent state transitions
     transition_rates: Dict[str, float]  # Rates of different transitions
     time_features: Dict[str, float]  # Time-dependent features
+
+class BehaviouralPattern:
+    """Container for identified behavioural patterns"""
+    def __init__(self):
+        self.patterns = {
+            'exploration': {
+                'description': 'Moving with high turning rate while isolated',
+                'conditions': {
+                    'velocity': (1.0, 5.0),  # mm/s
+                    'turning_rate': (0.5, float('inf')),  # rad/s
+                    'nn_distance': (30.0, float('inf'))  # mm
+                }
+            },
+            'clustering': {
+                'description': 'Slow movement near other ants',
+                'conditions': {
+                    'velocity': (0.0, 2.0),
+                    'nn_distance': (0.0, 10.0),
+                    'cluster_size': (2, float('inf'))
+                }
+            },
+            'directed_movement': {
+                'description': 'Fast movement with low turning rate',
+                'conditions': {
+                    'velocity': (5.0, float('inf')),
+                    'turning_rate': (0.0, 0.5)
+                }
+            },
+            'stationary': {
+                'description': 'Minimal movement for extended period',
+                'conditions': {
+                    'velocity': (0.0, 0.5),
+                    'duration': (5.0, float('inf'))  # seconds
+                }
+            }
+        }
+        
+    def identify_pattern(self, velocity: float, turning_rate: float, 
+                        nn_distance: float, duration: float) -> List[str]:
+        """Identify which behavioural patterns match the current state"""
+        matching_patterns = []
+        
+        for pattern_name, pattern in self.patterns.items():
+            conditions = pattern['conditions']
+            matches = True
+            
+            for metric, (min_val, max_val) in conditions.items():
+                value = locals()[metric]  # Get the value of the metric from function arguments
+                if value < min_val or value > max_val:
+                    matches = False
+                    break
+                    
+            if matches:
+                matching_patterns.append(pattern_name)
+                
+        return matching_patterns
 
 class BehaviouralStateExtractor:
     """Extract high-dimensional behavioural state features from ant trajectory data."""
@@ -567,41 +629,61 @@ class BehaviouralStateExtractor:
     def extract_temporal_context(self,
                                current_state: BehaviouralState,
                                prev_states: List[BehaviouralState],
-                               window_size: int = 60  # 1 second at 60fps
+                               window_size: int = 60,  # 1 second at 60fps
+                               velocity_threshold: float = 0.5,  # mm/s
                                ) -> Tuple[np.ndarray, Dict[str, float], Dict[str, float]]:
-        """Extract temporal context features."""
-        # Track recent state changes
-        state_changes = np.zeros(len(prev_states))
+        """Extract temporal context features with explicit behavioural transitions."""
+        if not prev_states:
+            return np.zeros(1), {}, {}
+            
+        # Define behavioural state changes we care about
+        motion_changes = []  # Changes between moving/stopped
+        social_changes = []  # Changes in clustering state
+        activity_bursts = []  # Sudden increases in activity
+        
         for i in range(1, len(prev_states)):
-            # Calculate state difference metric
-            state_changes[i] = np.abs(
-                prev_states[i].activity_level - 
-                prev_states[i-1].activity_level
-            )
+            prev = prev_states[i-1]
+            curr = prev_states[i]
+            
+            # Detect motion state changes
+            prev_moving = np.mean(np.linalg.norm(prev.velocities, axis=1)) > velocity_threshold
+            curr_moving = np.mean(np.linalg.norm(curr.velocities, axis=1)) > velocity_threshold
+            if prev_moving != curr_moving:
+                motion_changes.append(i)
+                
+            # Detect social state changes (using clustering)
+            prev_clustered = curr.cluster_config['n_clusters'] > prev.cluster_config['n_clusters']
+            if prev_clustered:
+                social_changes.append(i)
+                
+            # Detect activity bursts
+            activity_change = curr.activity_level - prev.activity_level
+            if activity_change > self.activity_threshold:
+                activity_bursts.append(i)
         
         # Calculate transition rates
         transition_rates = {
-            'activity_change_rate': np.mean(np.abs(np.diff(
-                [state.activity_level for state in prev_states]
-            ))),
-            'cluster_change_rate': np.mean(np.abs(np.diff(
-                [state.cluster_config['n_clusters'] for state in prev_states]
-            )))
+            'motion_change_rate': len(motion_changes) / window_size,
+            'social_change_rate': len(social_changes) / window_size,
+            'activity_burst_rate': len(activity_bursts) / window_size
         }
         
         # Extract time-dependent features
         time_features = {
+            'recent_motion_changes': len([x for x in motion_changes if x >= len(prev_states) - 10]),
+            'time_since_last_cluster': min([len(prev_states) - x for x in social_changes]) if social_changes else window_size,
             'activity_trend': np.polyfit(
                 np.arange(len(prev_states)),
                 [state.activity_level for state in prev_states],
                 1
-            )[0],
-            'clustering_trend': np.polyfit(
-                np.arange(len(prev_states)),
-                [state.cluster_config['n_clusters'] for state in prev_states],
-                1
             )[0]
         }
+        
+        # Create state changes array with explicit behavioural transitions
+        state_changes = np.zeros(len(prev_states))
+        state_changes[motion_changes] += 1
+        state_changes[social_changes] += 1
+        state_changes[activity_bursts] += 1
         
         return state_changes, transition_rates, time_features
     
@@ -808,40 +890,56 @@ class StateCharacteristics:
 class StateAnalyser:
     """Analyse and classify behavioural states"""
     
+    # Define behavioural patterns as class attributes
+    PATTERNS = {
+        'exploration': {
+            'description': 'Moving with high turning rate while isolated',
+            'conditions': {
+                'velocity': (1.0, 5.0),  # mm/s
+                'turning_rate': (0.5, float('inf')),  # rad/s
+                'nn_distance': (30.0, float('inf'))  # mm
+            }
+        },
+        'clustering': {
+            'description': 'Slow movement near other ants',
+            'conditions': {
+                'velocity': (0.0, 2.0),
+                'nn_distance': (0.0, 10.0)
+            }
+        },
+        'directed_movement': {
+            'description': 'Fast movement with low turning rate',
+            'conditions': {
+                'velocity': (5.0, float('inf')),
+                'turning_rate': (0.0, 0.5)
+            }
+        },
+        'stationary': {
+            'description': 'Minimal movement for extended period',
+            'conditions': {
+                'velocity': (0.0, 0.5),
+                'duration': (5.0, float('inf'))  # seconds
+            }
+        }
+    }
+
     def __init__(self, 
                  velocity_thresholds: Tuple[float, float] = (1.0, 3.0),  # mm/s
                  nn_thresholds: Tuple[float, float] = (10.0, 30.0),  # mm
                  density_thresholds: Tuple[float, float] = (0.1, 0.3),  # ants per mm^2
-                 turning_threshold: float = 0.1):  # rad/s
-        """
-        Initialize the state analyser with thresholds for classification
-        
-        Args:
-            velocity_thresholds: (slow, fast) thresholds for velocity classification in mm/s
-            nn_thresholds: (clustered, isolated) thresholds for nearest neighbour classification in mm
-            density_thresholds: (sparse, dense) thresholds for local density classification
-            turning_threshold: threshold for high/low turning rate classification in rad/s
-        """
+                 turning_threshold: float = 0.1,  # rad/s
+                 activity_threshold: float = 0.2):  # For temporal context
         self.velocity_thresholds = velocity_thresholds
         self.nn_thresholds = nn_thresholds
         self.density_thresholds = density_thresholds
         self.turning_threshold = turning_threshold
+        self.activity_threshold = activity_threshold
         self.state_characteristics = {}
         self.state_labels = {}
         
     def label_state(self, velocity_mean: float, nn_distance_mean: float, 
-                   turning_rate_mean: float) -> str:
-        """
-        Generate descriptive label for a behavioural state based on its characteristics.
-        
-        Args:
-            velocity_mean: Mean velocity in mm/s
-            nn_distance_mean: Mean nearest neighbor distance in mm
-            turning_rate_mean: Mean turning rate in rad/s
-            
-        Returns:
-            Descriptive label combining movement and social aspects
-        """
+                   turning_rate_mean: float, duration: float = 0.0) -> str:
+        """Generate descriptive label for a behavioural state with pattern recognition"""
         # Determine movement category
         if velocity_mean < self.velocity_thresholds[0]:
             movement_label = "Stopped"
@@ -860,8 +958,34 @@ class StateAnalyser:
 
         # Determine turning behavior
         turning_label = "High Turning" if turning_rate_mean > self.turning_threshold else "Low Turning"
-
-        return f"{movement_label} and {social_label} ({turning_label})"
+        
+        # Identify matching behavioural patterns
+        matching_patterns = []
+        for pattern_name, pattern in self.PATTERNS.items():
+            conditions = pattern['conditions']
+            matches = True
+            
+            for metric, (min_val, max_val) in conditions.items():
+                value = {
+                    'velocity': velocity_mean,
+                    'turning_rate': turning_rate_mean,
+                    'nn_distance': nn_distance_mean,
+                    'duration': duration
+                }.get(metric)
+                
+                if value is not None and (value < min_val or value > max_val):
+                    matches = False
+                    break
+                    
+            if matches:
+                matching_patterns.append(pattern_name)
+        
+        # Combine basic state description with identified patterns
+        basic_state = f"{movement_label} and {social_label} ({turning_label})"
+        if matching_patterns:
+            patterns_str = ", ".join(matching_patterns)
+            return f"{basic_state} - {patterns_str}"
+        return basic_state
 
     def compute_state_characteristics(self, 
                                    processed_data: Dict,
@@ -1299,7 +1423,7 @@ class BehaviouralTrajectoryAnalyser:
 
 def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_distance=50):
     """
-    Optimized clustering analysis using vectorized operations.
+    Optimized clustering analysis using vectorised operations.
     
     Args:
         data: DataFrame with MultiIndex columns (ant_id, coordinate)
@@ -1327,7 +1451,7 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_dista
         'centroids': []
     }
     
-    # Extract all positions at once using vectorized operations
+    # Extract all positions at once using vectorised operations
     ant_ids = sorted(list(set(idx[0] for idx in data.columns)))
     frame_indices = data.index.values
     
@@ -1364,24 +1488,24 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_dista
         clustering = DBSCAN(eps=eps_pixels, min_samples=min_samples).fit(valid_positions)
         labels = clustering.labels_
         
-        # Calculate centroids using vectorized operations
+        # Calculate centroids using vectorised operations
         unique_labels = np.unique(labels[labels >= 0])
         current_centroids = {}
         current_id_map = {}
         
         if len(unique_labels) > 0:
-            # Vectorized centroid calculation
+            # Vectorised centroid calculation
             centroids = np.array([
                 np.mean(valid_positions[labels == label], axis=0)
                 for label in unique_labels
             ])
             
-            # Vectorized distance calculation between all centroids
+            # Vectorised distance calculation between all centroids
             if previous_centroids:
                 prev_centroid_array = np.array(list(previous_centroids.values()))
                 distances = cdist(centroids, prev_centroid_array)
                 
-                # Find best matches using vectorized operations
+                # Find best matches using vectorised operations
                 for i, label in enumerate(unique_labels):
                     if distances[i].size > 0:
                         min_dist_idx = np.argmin(distances[i])
@@ -1398,11 +1522,11 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_dista
                     current_centroids[next_cluster_id] = centroids[i]
                     next_cluster_id += 1
         
-        # Update labels with consistent IDs using vectorized operation
+        # Update labels with consistent IDs using vectorised operation
         consistent_labels = np.array([current_id_map.get(label, -1) if label >= 0 else -1 
                                     for label in labels])
         
-        # Calculate statistics using vectorized operations
+        # Calculate statistics using vectorised operations
         unique_clusters = len(current_centroids)
         if unique_clusters > 0:
             cluster_sizes = np.bincount(consistent_labels[consistent_labels >= 0])
