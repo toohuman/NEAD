@@ -449,11 +449,20 @@ class BehaviouralPattern:
                     'nn_distance': (0.0, 10.0)
                 }
             },
-            'directed_movement': {
-                'description': 'Fast movement with low turning rate',
+            'directed_movement_solo': {
+                'description': 'Fast, straight movement while isolated',
                 'conditions': {
                     'velocity': (5.0, float('inf')),
-                    'turning_rate': (0.0, 0.5)
+                    'turning_rate': (0.0, 0.5),
+                    'nn_distance': (20.0, float('inf'))  # High NN distance
+                }
+            },
+            'directed_movement_social': {
+                'description': 'Fast, straight movement near others',
+                'conditions': {
+                    'velocity': (5.0, float('inf')),
+                    'turning_rate': (0.0, 0.5),
+                    'nn_distance': (0.0, 20.0)  # Lower NN distance
                 }
             },
             'stationary': {
@@ -937,7 +946,7 @@ class StateAnalyser:
     }
 
     def __init__(self, 
-                 velocity_thresholds: Tuple[float, float] = (0.5, 3.0),  # mm/s
+                 velocity_thresholds: Tuple[float, float] = (1.0, 10.0),  # mm/s
                  nn_thresholds: Tuple[float, float] = (10.0, 30.0),  # mm
                  density_thresholds: Tuple[float, float] = (0.1, 0.3),  # ants per mm^2
                  turning_threshold: float = 0.1,  # rad/s
