@@ -665,8 +665,8 @@ class BehaviouralStateExtractor:
         
         # Calculate transition rates
         transition_rates = {
-            'motion_change_rate': len(motion_changes) / window_size,
-            'social_change_rate': len(social_changes) / window_size,
+            'activity_change_rate': len(motion_changes) / window_size,
+            'cluster_change_rate': len(social_changes) / window_size,
             'activity_burst_rate': len(activity_bursts) / window_size
         }
         
@@ -794,7 +794,7 @@ class BehaviouralStateExtractor:
         features.extend([
             safe_stat(np.mean, state.state_changes),
             safe_stat(float, state.transition_rates['activity_change_rate']),
-            safe_stat(float, state.transition_rates['social_change_rate']),
+            safe_stat(float, state.transition_rates['cluster_change_rate']),
             safe_stat(float, state.time_features['activity_trend']),
             safe_stat(float, state.time_features.get('time_since_last_cluster', 0))
         ])
