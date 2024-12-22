@@ -1248,13 +1248,20 @@ class StateAnalyser:
     
     def _plot_transition_network(self, ax):
         """Plot state transition network with enhanced labels"""
-        # Get transition probabilities
-        transitions = np.zeros((len(self.state_characteristics), 
-                              len(self.state_characteristics)))
+        # Get maximum state ID to determine matrix size
+        max_state = max(max(self.state_characteristics.keys()),
+                       max(max(chars.transition_probs.keys()) 
+                           for chars in self.state_characteristics.values()
+                           if chars.transition_probs))
         
+        # Create transition matrix with proper size
+        transitions = np.zeros((max_state + 1, max_state + 1))
+        
+        # Fill transition probabilities
         for state_id, chars in self.state_characteristics.items():
             for next_state, prob in chars.transition_probs.items():
-                transitions[state_id, next_state] = prob
+                if state_id < transitions.shape[0] and next_state < transitions.shape[1]:
+                    transitions[state_id, next_state] = prob
         
         # Plot heatmap
         sns.heatmap(transitions, ax=ax, cmap='YlOrRd')
