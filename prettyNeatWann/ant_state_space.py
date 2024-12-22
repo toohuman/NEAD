@@ -1001,8 +1001,8 @@ class StateAnalyser:
         return basic_state
 
     def compute_state_characteristics(self, 
-                                processed_data: Dict,
-                                clustering_stats: Dict) -> Dict[int, StateCharacteristics]:
+                                    processed_data: Dict,
+                                    clustering_stats: Dict) -> Dict[int, StateCharacteristics]:
         """
         Compute detailed characteristics for each observed state, now including behavioural patterns
         
@@ -1052,29 +1052,35 @@ class StateAnalyser:
         self.state_patterns = {}  # Store patterns in the class instance
         
         for state_id, instances in state_chars.items():
+            # Compute stats for this state
             stats = self._compute_summary_stats(instances)
             characteristics[state_id] = stats
             
-            # Identify behavioural patterns for this state
+            # Always identify patterns for this state using mean values
             patterns = pattern_matcher.identify_pattern(
                 velocity=stats.velocity_stats['mean'],
                 turning_rate=stats.angular_velocity_stats['mean'],
                 nn_distance=stats.social_stats['mean_nn_dist'],
                 duration=stats.duration
             )
+            
+            # If no patterns were matched, generate a basic description
+            if not patterns:
+                base_description = self.label_state(
+                    stats.velocity_stats['mean'],
+                    stats.social_stats['mean_nn_dist'],
+                    stats.angular_velocity_stats['mean']
+                )
+                patterns = [base_description]
+            
             self.state_patterns[state_id] = patterns
         
         # Generate labels for each state
         self.state_labels = {}
         for state_id, stats in characteristics.items():
             patterns = self.state_patterns[state_id]
-            base_label = self.label_state(
-                stats.velocity_stats['mean'],
-                stats.social_stats['mean_nn_dist'],
-                stats.angular_velocity_stats['mean']
-            )
-            pattern_str = f" ({', '.join(patterns)})" if patterns else ""
-            self.state_labels[state_id] = base_label + pattern_str
+            pattern_str = ", ".join(patterns)
+            self.state_labels[state_id] = f"State {state_id}\n({pattern_str})"
         
         return characteristics
     
@@ -1149,7 +1155,7 @@ class StateAnalyser:
         )
     
     def visualise_state_characteristics(self, save_path: Optional[str] = None):
-        """Create comprehensive visualisation of state characteristics"""
+        """Create comprehensive visualisation of state characteristics with enhanced state transition labels"""
         n_states = len(self.state_characteristics)
         
         # Create a grid of subplots
@@ -1172,13 +1178,37 @@ class StateAnalyser:
         ax3.set_ylabel('Frequency')
         ax3.set_title('State Duration Distribution')
         
-        # 4. State transition network
+        # 4. State transition network with enhanced labels
         ax4 = fig.add_subplot(gs[1:, :])
-        self._plot_transition_network(ax4)
+        transitions = np.zeros((n_states, n_states))
+        
+        # Fill transition matrix
+        for state_id, chars in self.state_characteristics.items():
+            for next_state, prob in chars.transition_probs.items():
+                transitions[state_id, next_state] = prob
+        
+        # Plot heatmap
+        sns.heatmap(transitions, ax=ax4, cmap='YlOrRd')
+        
+        # Create state labels combining basic state and patterns
+        state_labels = []
+        for state_id in sorted(self.state_characteristics.keys()):
+            base_label = f"State {state_id}"
+            if state_id in self.state_patterns and self.state_patterns[state_id]:
+                patterns = ", ".join(self.state_patterns[state_id])
+                base_label += f"\n({patterns})"
+            state_labels.append(base_label)
+        
+        # Set enhanced labels
+        ax4.set_xticklabels(state_labels, rotation=45, ha='right')
+        ax4.set_yticklabels(state_labels, rotation=0)
+        ax4.set_xlabel('Next State')
+        ax4.set_ylabel('Current State')
+        ax4.set_title('State Transition Probabilities')
         
         plt.tight_layout()
         if save_path:
-            plt.savefig(save_path)
+            plt.savefig(save_path, bbox_inches='tight', dpi=300)
         plt.show()
     
     def _plot_state_distribution(self, ax, stat_category: str, stat_name: str, xlabel: str):
