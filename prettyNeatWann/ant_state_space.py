@@ -1239,6 +1239,16 @@ class StateAnalyser:
                 base_label += f"\n({patterns})"
             state_labels.append(base_label)
         
+        # Get current tick positions
+        xticks = ax4.get_xticks()
+        yticks = ax4.get_yticks()
+        
+        # Ensure we have enough labels by padding or truncating
+        n_ticks = len(xticks)
+        while len(state_labels) < n_ticks:
+            state_labels.append(f"State {len(state_labels)}")
+        state_labels = state_labels[:n_ticks]
+        
         # Set enhanced labels
         ax4.set_xticklabels(state_labels, rotation=45, ha='right')
         ax4.set_yticklabels(state_labels, rotation=0)
