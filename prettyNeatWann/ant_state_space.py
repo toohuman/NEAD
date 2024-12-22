@@ -1227,34 +1227,8 @@ class StateAnalyser:
                 if state_id < transitions.shape[0] and next_state < transitions.shape[1]:
                     transitions[state_id, next_state] = prob
         
-        # Plot heatmap
-        sns.heatmap(transitions, ax=ax4, cmap='YlOrRd')
-        
-        # Create state labels combining basic state and patterns
-        state_labels = []
-        for state_id in sorted(self.state_characteristics.keys()):
-            base_label = f"State {state_id}"
-            if state_id in self.state_patterns and self.state_patterns[state_id]:
-                patterns = ", ".join(self.state_patterns[state_id])
-                base_label += f"\n({patterns})"
-            state_labels.append(base_label)
-        
-        # Get current tick positions
-        xticks = ax4.get_xticks()
-        yticks = ax4.get_yticks()
-        
-        # Ensure we have enough labels by padding or truncating
-        n_ticks = len(xticks)
-        while len(state_labels) < n_ticks:
-            state_labels.append(f"State {len(state_labels)}")
-        state_labels = state_labels[:n_ticks]
-        
-        # Set enhanced labels
-        ax4.set_xticklabels(state_labels, rotation=45, ha='right')
-        ax4.set_yticklabels(state_labels, rotation=0)
-        ax4.set_xlabel('Next State')
-        ax4.set_ylabel('Current State')
-        ax4.set_title('State Transition Probabilities')
+        # Call plot_transition_network
+        self._plot_transition_network(ax4)
         
         plt.tight_layout()
         if save_path:
@@ -1273,7 +1247,7 @@ class StateAnalyser:
         ax.set_title(f'{xlabel} by State')
     
     def _plot_transition_network(self, ax):
-        """Plot state transition network"""
+        """Plot state transition network with enhanced labels"""
         # Get transition probabilities
         transitions = np.zeros((len(self.state_characteristics), 
                               len(self.state_characteristics)))
@@ -1284,6 +1258,29 @@ class StateAnalyser:
         
         # Plot heatmap
         sns.heatmap(transitions, ax=ax, cmap='YlOrRd')
+        
+        # Create state labels combining basic state and patterns
+        state_labels = []
+        for state_id in sorted(self.state_characteristics.keys()):
+            base_label = f"State {state_id}"
+            if state_id in self.state_patterns and self.state_patterns[state_id]:
+                patterns = ", ".join(self.state_patterns[state_id])
+                base_label += f"\n({patterns})"
+            state_labels.append(base_label)
+        
+        # Get current tick positions
+        xticks = ax.get_xticks()
+        yticks = ax.get_yticks()
+        
+        # Ensure we have enough labels by padding or truncating
+        n_ticks = len(xticks)
+        while len(state_labels) < n_ticks:
+            state_labels.append(f"State {len(state_labels)}")
+        state_labels = state_labels[:n_ticks]
+        
+        # Set enhanced labels
+        ax.set_xticklabels(state_labels, rotation=45, ha='right')
+        ax.set_yticklabels(state_labels, rotation=0)
         ax.set_xlabel('Next State')
         ax.set_ylabel('Current State')
         ax.set_title('State Transition Probabilities')
