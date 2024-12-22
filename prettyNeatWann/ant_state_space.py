@@ -1234,22 +1234,23 @@ class StateAnalyser:
         for state_id, chars in self.state_characteristics.items():
             state_durations[state_id] = chars.duration
         
-        # Create grouped box plots
+        # Create bar plot for durations
         states = sorted(state_durations.keys())
         durations = [state_durations[state] for state in states]
         
-        # Create violin plot to show distribution
-        violin_parts = ax.violinplot(durations, positions=states, showmedians=True)
+        # Create bar plot
+        bars = ax.bar(states, durations, alpha=0.7)
         
-        # Add individual points for better visibility
-        for state_idx, state in enumerate(states):
-            duration = state_durations[state]
-            x = np.random.normal(state_idx + 1, 0.04, size=1)  # Add small random jitter
-            ax.scatter(x, [duration], alpha=0.5, c='black', s=20)
+        # Add value labels on top of bars
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height,
+                   f'{height:.1f}s',
+                   ha='center', va='bottom')
         
         ax.set_xlabel('State ID')
         ax.set_ylabel('Duration (s)')
-        ax.set_title('State Duration Distributions')
+        ax.set_title('State Durations')
         
         # Add grid for better readability
         ax.grid(True, linestyle='--', alpha=0.7)
