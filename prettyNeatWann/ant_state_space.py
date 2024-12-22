@@ -1203,14 +1203,10 @@ class StateAnalyser:
         ax2 = fig.add_subplot(gs[0, 1])
         self._plot_state_distribution(ax2, 'social_stats', 'mean_nn_dist', 'Mean NN Distance (mm)')
         
-        # 3. State duration distribution
+        # 3. State duration distribution with better visualization
         ax3 = fig.add_subplot(gs[0, 2])
-        durations = [chars.duration for chars in self.state_characteristics.values()]
-        ax3.hist(durations, bins=20)
-        ax3.set_xlabel('State Duration (s)')
-        ax3.set_ylabel('Frequency')
-        ax3.set_title('State Duration Distribution')
-        
+        self._plot_duration_distribution(ax3)
+
         # 4. State transition network with enhanced labels
         ax4 = fig.add_subplot(gs[1:, :])
         self._plot_transition_network(ax4)
@@ -1231,48 +1227,68 @@ class StateAnalyser:
         ax.set_ylabel(xlabel)
         ax.set_title(f'{xlabel} by State')
     
-    def _plot_transition_network(self, ax):
-        """Plot state transition network with enhanced labels"""
-        # Get maximum state ID to determine matrix size
-        max_state = max(max(self.state_characteristics.keys()),
-                       max(max(chars.transition_probs.keys()) 
-                           for chars in self.state_characteristics.values()
-                           if chars.transition_probs))
+    def _plot_duration_distribution(self, ax):
+        """Plot distribution of durations for each state"""
+        # Get durations by state
+        state_durations = {}
+        for state_id, chars in self.state_characteristics.items():
+            state_durations[state_id] = chars.duration
         
-        # Create transition matrix with proper size
-        transitions = np.zeros((max_state + 1, max_state + 1))
+        # Create grouped box plots
+        states = sorted(state_durations.keys())
+        durations = [state_durations[state] for state in states]
+        
+        # Create violin plot to show distribution
+        violin_parts = ax.violinplot(durations, positions=states, showmedians=True)
+        
+        # Add individual points for better visibility
+        for state_idx, state in enumerate(states):
+            duration = state_durations[state]
+            x = np.random.normal(state_idx + 1, 0.04, size=1)  # Add small random jitter
+            ax.scatter(x, [duration], alpha=0.5, c='black', s=20)
+        
+        ax.set_xlabel('State ID')
+        ax.set_ylabel('Duration (s)')
+        ax.set_title('State Duration Distributions')
+        
+        # Add grid for better readability
+        ax.grid(True, linestyle='--', alpha=0.7)
+    
+    def _plot_transition_network(self, ax):
+        """Plot state transition network with corrected labels and no duplications."""
+        # Get unique states in sorted order
+        unique_states = sorted(list(self.state_characteristics.keys()))
+        n_states = len(unique_states)
+        
+        # Create transition matrix of the correct size
+        transitions = np.zeros((n_states, n_states))
         
         # Fill transition probabilities
-        for state_id, chars in self.state_characteristics.items():
+        for i, current_state in enumerate(unique_states):
+            chars = self.state_characteristics[current_state]
             for next_state, prob in chars.transition_probs.items():
-                if state_id < transitions.shape[0] and next_state < transitions.shape[1]:
-                    transitions[state_id, next_state] = prob
+                if next_state in unique_states:  # Ensure the next state is valid
+                    j = unique_states.index(next_state)
+                    transitions[i, j] = prob
         
-        # Plot heatmap
-        sns.heatmap(transitions, ax=ax, cmap='YlOrRd')
-        
-        # Create state labels combining basic state and patterns
+        # Create state labels (only once)
         state_labels = []
-        for state_id in sorted(self.state_characteristics.keys()):
+        for state_id in unique_states:
             base_label = f"State {state_id}"
             if state_id in self.state_patterns and self.state_patterns[state_id]:
                 patterns = ", ".join(self.state_patterns[state_id])
                 base_label += f"\n({patterns})"
             state_labels.append(base_label)
         
-        # Get current tick positions
-        xticks = ax.get_xticks()
-        yticks = ax.get_yticks()
+        # Plot heatmap with correct dimensions and labels
+        sns.heatmap(transitions, ax=ax, cmap='YlOrRd', 
+                    xticklabels=state_labels, 
+                    yticklabels=state_labels)
         
-        # Ensure we have enough labels by padding or truncating
-        n_ticks = len(xticks)
-        while len(state_labels) < n_ticks:
-            state_labels.append(f"State {len(state_labels)}")
-        state_labels = state_labels[:n_ticks]
+        # Adjust label rotation and alignment
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+        ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
         
-        # Set enhanced labels
-        ax.set_xticklabels(state_labels, rotation=45, ha='right')
-        ax.set_yticklabels(state_labels, rotation=0)
         ax.set_xlabel('Next State')
         ax.set_ylabel('Current State')
         ax.set_title('State Transition Probabilities')
