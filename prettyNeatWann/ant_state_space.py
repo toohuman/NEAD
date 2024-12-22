@@ -793,10 +793,10 @@ class BehaviouralStateExtractor:
         # Temporal features
         features.extend([
             safe_stat(np.mean, state.state_changes),
-            safe_stat(float, state.transition_rates['motion_change_rate']),
+            safe_stat(float, state.transition_rates['activity_change_rate']),
             safe_stat(float, state.transition_rates['social_change_rate']),
             safe_stat(float, state.time_features['activity_trend']),
-            safe_stat(float, state.time_features['clustering_trend'])
+            safe_stat(float, state.time_features.get('time_since_last_cluster', 0))
         ])
         
         return np.array(features)
