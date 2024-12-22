@@ -492,13 +492,15 @@ class BehaviouralStateExtractor:
     def __init__(self, 
                  seconds_of_history: float = 1.0,  # How many seconds of history to maintain
                  n_nearest: int = 5,  # Number of nearest neighbours to track
-                 fps: float = 60.0):
+                 fps: float = 60.0,
+                 activity_threshold: float = 0.2):  # Threshold for activity bursts
         self.history_length = int(seconds_of_history * fps)
         self.n_nearest = n_nearest
         self.fps = fps
         self.dt = 1.0 / fps
         self.scaler = StandardScaler()
         self.pca = PCA(n_components=10)  # Reduce to 10 principal components
+        self.activity_threshold = activity_threshold
         
     def extract_individual_motion(self, 
                                 positions: np.ndarray,  # Shape: (n_ants, 2)
