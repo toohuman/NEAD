@@ -446,8 +446,7 @@ class BehaviouralPattern:
                 'description': 'Slow movement near other ants',
                 'conditions': {
                     'velocity': (0.0, 2.0),
-                    'nn_distance': (0.0, 10.0),
-                    'cluster_size': (2, float('inf'))
+                    'nn_distance': (0.0, 10.0)
                 }
             },
             'directed_movement': {
@@ -471,12 +470,24 @@ class BehaviouralPattern:
         """Identify which behavioural patterns match the current state"""
         matching_patterns = []
         
+        # Create a map of available metrics
+        metrics = {
+            'velocity': velocity,
+            'turning_rate': turning_rate,
+            'nn_distance': nn_distance,
+            'duration': duration
+        }
+        
         for pattern_name, pattern in self.patterns.items():
             conditions = pattern['conditions']
             matches = True
             
             for metric, (min_val, max_val) in conditions.items():
-                value = locals()[metric]  # Get the value of the metric from function arguments
+                if metric not in metrics:
+                    matches = False
+                    break
+                    
+                value = metrics[metric]
                 if value < min_val or value > max_val:
                     matches = False
                     break
