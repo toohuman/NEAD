@@ -1213,21 +1213,6 @@ class StateAnalyser:
         
         # 4. State transition network with enhanced labels
         ax4 = fig.add_subplot(gs[1:, :])
-        # Get max state ID to determine matrix size
-        max_state = max(max(self.state_characteristics.keys()), 
-                       max(max(chars.transition_probs.keys()) 
-                           for chars in self.state_characteristics.values() 
-                           if chars.transition_probs))
-        
-        transitions = np.zeros((max_state + 1, max_state + 1))
-        
-        # Fill transition matrix
-        for state_id, chars in self.state_characteristics.items():
-            for next_state, prob in chars.transition_probs.items():
-                if state_id < transitions.shape[0] and next_state < transitions.shape[1]:
-                    transitions[state_id, next_state] = prob
-        
-        # Call plot_transition_network
         self._plot_transition_network(ax4)
         
         plt.tight_layout()
