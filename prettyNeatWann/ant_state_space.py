@@ -1024,6 +1024,7 @@ class StateAnalyser:
         """
         state_chars = {}
         pattern_matcher = BehaviouralPattern()  # Create single instance of pattern matcher
+        state_transitions = {}  # Track state transitions
         
         # For each ant's data
         for ant_id, ant_data in processed_data.items():
@@ -1033,6 +1034,9 @@ class StateAnalyser:
             # Compute velocity magnitudes
             velocities = np.linalg.norm(traj_features.velocities, axis=1)
             accelerations = np.linalg.norm(traj_features.accelerations, axis=1)
+            
+            # Track state sequence for this ant
+            prev_state = None
             
             # Group data into states based on characteristics
             for i in range(len(velocities)):
@@ -1045,6 +1049,16 @@ class StateAnalyser:
                     angular_velocity=traj_features.angular_velocities[i],
                     social_features=social_features[i] if i < len(social_features) else None
                 )
+                
+                # Record state transition
+                if prev_state is not None:
+                    if prev_state not in state_transitions:
+                        state_transitions[prev_state] = {}
+                    if state_id not in state_transitions[prev_state]:
+                        state_transitions[prev_state][state_id] = 0
+                    state_transitions[prev_state][state_id] += 1
+                
+                prev_state = state_id
                 
                 if state_id not in state_chars:
                     state_chars[state_id] = []
@@ -1060,9 +1074,19 @@ class StateAnalyser:
         characteristics = {}
         self.state_patterns = {}  # Store patterns in the class instance
         
+        # Calculate transition probabilities
+        for from_state in state_transitions:
+            total_transitions = sum(state_transitions[from_state].values())
+            for to_state in state_transitions[from_state]:
+                state_transitions[from_state][to_state] /= total_transitions
+        
         for state_id, instances in state_chars.items():
             # Compute stats for this state
             stats = self._compute_summary_stats(instances)
+            
+            # Add transition probabilities to stats
+            stats.transition_probs = state_transitions.get(state_id, {})
+            
             characteristics[state_id] = stats
             
             # Always identify patterns for this state using mean values
