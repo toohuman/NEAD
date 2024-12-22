@@ -937,7 +937,7 @@ class StateAnalyser:
     }
 
     def __init__(self, 
-                 velocity_thresholds: Tuple[float, float] = (1.0, 3.0),  # mm/s
+                 velocity_thresholds: Tuple[float, float] = (0.5, 3.0),  # mm/s
                  nn_thresholds: Tuple[float, float] = (10.0, 30.0),  # mm
                  density_thresholds: Tuple[float, float] = (0.1, 0.3),  # ants per mm^2
                  turning_threshold: float = 0.1,  # rad/s
