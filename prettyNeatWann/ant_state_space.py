@@ -1783,7 +1783,7 @@ def integrate_state_space_analysis(processed_data: Dict,
     # Compute state transitions
     state_transitions = compute_state_transitions(processed_data, state_analyser)
     
-    # Store state analyser for visualization
+    # Store state analyser for visualisation
     state_analyser.state_characteristics = state_characteristics
     
     return {
@@ -1876,7 +1876,7 @@ def visualise_transition_probs(analysis_results: Dict,
     # Handle NaN and Inf values
     transition_probs = np.nan_to_num(transition_probs, nan=0.0, posinf=1.0, neginf=0.0)
     
-    # Ensure proper normalization
+    # Ensure proper normalisation
     row_sums = transition_probs.sum(axis=1, keepdims=True)
     transition_probs = np.divide(transition_probs, row_sums, 
                                where=row_sums!=0, 
@@ -2079,8 +2079,8 @@ def main():
     visualise_transition_probs(analysis_results,
                              save_path=str(save_dir / trans_prob_file))
     
-    # Generate state analysis visualization
-    print("\nGenerating state analysis visualizations...")
+    # Generate state analysis visualisation
+    print("\nGenerating state analysis visualisations...")
     state_vis_file = f'state_analysis{time_suffix}.png'
     analysis_results['state_analyser'].visualise_state_characteristics(
         save_path=str(save_dir / state_vis_file))
