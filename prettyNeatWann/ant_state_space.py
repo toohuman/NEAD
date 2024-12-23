@@ -2182,18 +2182,18 @@ def main():
         time_suffix = f'_{int(args.time_window_start)}-{int(args.time_window_end)}min'
     
     # Save behavioral state space plot
-    state_space_file = f'behavioural_state_space{time_suffix}.png'
+    state_space_file = f'behavioural_state_space{time_suffix}.pdf'
     visualise_state_space_3d(analysis_results,
                             save_path=str(save_dir / state_space_file))
     
     # Save state transition probabilities plot  
-    trans_prob_file = f'state_trans_probs{time_suffix}.png'
+    trans_prob_file = f'state_trans_probs{time_suffix}.pdf'
     visualise_transition_probs(analysis_results,
                              save_path=str(save_dir / trans_prob_file))
     
     # Generate state analysis visualisation
     print("\nGenerating state analysis visualisations...")
-    state_vis_file = f'state_analysis{time_suffix}.png'
+    state_vis_file = f'state_analysis{time_suffix}.pdf'
     analysis_results['state_analyser'].visualise_state_characteristics(
         save_path=str(save_dir / state_vis_file))
     
