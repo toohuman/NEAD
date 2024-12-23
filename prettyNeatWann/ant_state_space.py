@@ -532,8 +532,13 @@ class BehaviouralStateExtractor:
         """Extract individual motion features for each ant."""
         n_ants = positions.shape[0]
         
-        # Calculate velocities and accelerations
+        # Calculate velocities and filter unrealistic ones
         velocities = (positions - prev_positions[-1]) / self.dt
+        velocity_magnitude = np.linalg.norm(velocities, axis=1)
+        large_velocity_jumps = velocity_magnitude > (100 * PIXELS_PER_MM)  # Same threshold as AntFeatureExtractor
+        velocities[large_velocity_jumps] = np.nan
+        
+        # Calculate accelerations after filtering velocities
         accelerations = (velocities - prev_velocities[-1]) / self.dt
         
         # Calculate turn rates and path curvatures
