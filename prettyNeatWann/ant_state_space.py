@@ -1828,6 +1828,7 @@ def integrate_state_space_analysis(processed_data: Dict,
             'cluster_sizes': clustering_stats['cluster_sizes'][t],
             'mean_cluster_density': clustering_stats['mean_cluster_density'][t]
         }
+        # print(f"Frame {t} cluster info:", cluster_info)
         
         # Extract state
         state = state_extractor.extract_state(
