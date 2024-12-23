@@ -1573,7 +1573,7 @@ class BehaviouralTrajectoryAnalyser:
         return motifs
 
 
-def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_distance=50):
+def analyse_colony_clustering(data, eps_mm=25, min_samples=2, max_centroid_distance=50):
     """
     Optimized clustering analysis using vectorised operations.
     
@@ -1625,16 +1625,32 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_dista
         valid_positions = frame_positions[valid_mask]
         
         if len(valid_positions) < min_samples:
-            # Handle empty frame case vectorially
-            clustering_stats['n_clusters'].append(0)
-            clustering_stats['cluster_sizes'].append([])
-            clustering_stats['mean_cluster_density'].append(0)
-            clustering_stats['isolated_ants'].append(len(valid_positions))
-            clustering_stats['positions'].append([])
-            clustering_stats['labels'].append([])
-            clustering_stats['cluster_ids'].append([])
-            clustering_stats['centroids'].append({})
-            continue
+            print(f"Frame {t}: Only {len(valid_positions)} valid positions (need {min_samples})")
+            # Still do clustering if we have any valid positions
+            if len(valid_positions) > 0:
+                clustering = DBSCAN(eps=eps_pixels, min_samples=max(2, len(valid_positions)-1)).fit(valid_positions)
+                labels = clustering.labels_
+                
+                # Calculate clustering stats with available positions
+                unique_clusters = len(set(labels[labels >= 0]))
+                clustering_stats['n_clusters'].append(unique_clusters)
+                clustering_stats['cluster_sizes'].append([np.sum(labels == i) for i in range(unique_clusters)])
+                clustering_stats['mean_cluster_density'].append(len(valid_positions) / (np.pi * eps_pixels ** 2) if unique_clusters > 0 else 0)
+                clustering_stats['isolated_ants'].append(np.sum(labels == -1))
+                clustering_stats['positions'].append(valid_positions.tolist())
+                clustering_stats['labels'].append(labels.tolist())
+                clustering_stats['cluster_ids'].append(list(range(unique_clusters)))
+                clustering_stats['centroids'].append({i: np.mean(valid_positions[labels == i], axis=0) for i in range(unique_clusters)})
+            else:
+                clustering_stats['n_clusters'].append(0)
+                clustering_stats['cluster_sizes'].append([])
+                clustering_stats['mean_cluster_density'].append(0)
+                clustering_stats['isolated_ants'].append(0)
+                clustering_stats['positions'].append([])
+                clustering_stats['labels'].append([])
+                clustering_stats['cluster_ids'].append([])
+                clustering_stats['centroids'].append({})
+            continue  # Skip the rest of the loop
         
         # Perform DBSCAN clustering
         clustering = DBSCAN(eps=eps_pixels, min_samples=min_samples).fit(valid_positions)
