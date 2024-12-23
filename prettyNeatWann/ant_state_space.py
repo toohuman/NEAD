@@ -1981,9 +1981,9 @@ def visualise_transition_probs(analysis_results: Dict,
         analysis_results: Results from state space analysis
         save_path: Optional path to save visualisation
     """
+    import matplotlib.pyplot as plt
     # Set larger font size
     plt.rcParams.update({'font.size': 14})
-    import matplotlib.pyplot as plt
     
     # Create figure
     fig = plt.figure(figsize=(10, 8))
