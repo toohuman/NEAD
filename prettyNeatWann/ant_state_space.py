@@ -248,7 +248,7 @@ class AntFeatureExtractor:
 class SocialContextExtractor:
     """Extract features related to social interactions using vectorised operations."""
     
-    def __init__(self, n_sectors: int = 8, max_distance: float = 100.0):
+    def __init__(self, fps: float = 60.0, n_sectors: int = 8, max_distance: float = 100.0):
         """
         Initialize the social context extractor.
         
@@ -256,6 +256,8 @@ class SocialContextExtractor:
             n_sectors: Number of angular sectors for density calculation
             max_distance: Maximum distance to consider for neighbour interactions
         """
+        self.fps = fps  # fps is already scaled when passed in
+        self.dt = 1.0 / self.fps
         self.n_sectors = n_sectors
         self.max_distance = max_distance
         self.sector_angles = np.linspace(0, 2*np.pi, n_sectors+1)
@@ -332,7 +334,7 @@ def process_ant_data(data: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
     effective_fps = VIDEO_FPS / SCALE if SCALE else VIDEO_FPS
     
     feature_extractor = AntFeatureExtractor(fps=effective_fps)
-    social_extractor = SocialContextExtractor()
+    social_extractor = SocialContextExtractor(fps=effective_fps)
     
     results = {}
     ant_ids = data.columns.levels[0]
@@ -734,7 +736,7 @@ class BehaviouralStateExtractor:
         # Extract temporal context if previous states available
         if prev_states:
             state_changes, transition_rates, time_features = self.extract_temporal_context(
-                cluster_config, prev_states
+                cluster_config, prev_states, window_size=self.fps
             )
         else:
             state_changes = np.zeros(1)
@@ -821,6 +823,17 @@ class BehaviouralStateExtractor:
         
         return np.array(features)
     
+    def diagnose_feature_scales(self, state_vectors: np.ndarray, feature_names: List[str]) -> None:
+        """Print diagnostic information about feature scales before PCA."""
+        print("\nFeature Scale Diagnostics:")
+        print(f"{'Feature':<25} {'Mean':>10} {'Std':>10} {'Min':>10} {'Max':>10}")
+        print("-" * 65)
+        
+        for i, feature in enumerate(feature_names):
+            values = state_vectors[:, i]
+            print(f"{feature:<25} {np.mean(values):10.3f} {np.std(values):10.3f} "
+                f"{np.min(values):10.3f} {np.max(values):10.3f}")
+
     def reduce_dimensionality(self, state_vectors: List[np.ndarray]) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Reduce dimensionality of state vectors using PCA."""
         # Scale the features
@@ -844,7 +857,26 @@ class BehaviouralStateExtractor:
             'mean_state_change', 'activity_change_rate',
             'cluster_change_rate', 'activity_trend', 'clustering_trend'
         ]
+    
+        #---------------------------------------------------------
+        # Convert to array if not already
+        state_vectors = np.array(state_vectors)
         
+        # Print diagnostics before scaling
+        print("\nBefore Scaling:")
+        self.diagnose_feature_scales(state_vectors, feature_names)
+        
+        # Scale the features
+        scaled_vectors = self.scaler.fit_transform(state_vectors)
+        
+        # Print diagnostics after scaling
+        print("\nAfter Scaling:")
+        self.diagnose_feature_scales(scaled_vectors, feature_names)
+        
+        # Apply PCA
+        reduced_vectors = self.pca.fit_transform(scaled_vectors)
+        #---------------------------------------------------------
+
         # Get component loadings and explained variance
         loadings = self.pca.components_
         explained_variance = self.pca.explained_variance_ratio_
@@ -946,11 +978,13 @@ class StateAnalyser:
     }
 
     def __init__(self, 
+                 fps: float = 60.0,
                  velocity_thresholds: Tuple[float, float] = (1.0, 10.0),  # mm/s
                  nn_thresholds: Tuple[float, float] = (10.0, 30.0),  # mm
                  density_thresholds: Tuple[float, float] = (0.1, 0.3),  # ants per mm^2
                  turning_threshold: float = 0.1,  # rad/s
                  activity_threshold: float = 0.2):  # For temporal context
+        self.fps = fps
         self.velocity_thresholds = velocity_thresholds
         self.nn_thresholds = nn_thresholds
         self.density_thresholds = density_thresholds
@@ -1183,7 +1217,7 @@ class StateAnalyser:
                 'mean_nn_dist': np.nanmean(nn_distances) if nn_distances else np.nan,
                 'mean_density': np.nanmean(densities) if densities else np.nan
             },
-            duration=len(instances) / (VIDEO_FPS / (SCALE if SCALE else 1)),  # convert frames to seconds using effective fps
+            duration = len(instances) / self.fps,
             transition_probs={}  # to be computed separately
         )
     
