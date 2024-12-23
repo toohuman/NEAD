@@ -1183,7 +1183,7 @@ class StateAnalyser:
                 'mean_nn_dist': np.nanmean(nn_distances) if nn_distances else np.nan,
                 'mean_density': np.nanmean(densities) if densities else np.nan
             },
-            duration=len(instances) / 60.0,  # approximate duration in seconds
+            duration=len(instances) / (VIDEO_FPS / (SCALE if SCALE else 1)),  # convert frames to seconds using effective fps
             transition_probs={}  # to be computed separately
         )
     
