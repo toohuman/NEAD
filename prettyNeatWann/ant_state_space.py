@@ -2056,14 +2056,13 @@ def visualise_state_space_3d(analysis_results: Dict,
                             save_path: Optional[str] = None):
     """
     Visualise the 3D behavioural state space and trajectories.
-    """
-    # Set larger font size
-    plt.rcParams.update({'font.size': 14})
-    
+
     Args:
         analysis_results: Results from state space analysis
         save_path: Optional path to save visualisation
     """
+    # Set larger font size
+    plt.rcParams.update({'font.size': 14})
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
 
@@ -2114,14 +2113,13 @@ def visualise_transition_probs(analysis_results: Dict,
                              save_path: Optional[str] = None):
     """
     Visualise the state transition probability matrix.
-    """
-    # Set larger font size
-    plt.rcParams.update({'font.size': 14})
-    
+
     Args:
         analysis_results: Results from state space analysis
         save_path: Optional path to save visualisation
     """
+    # Set larger font size
+    plt.rcParams.update({'font.size': 14})
     import matplotlib.pyplot as plt
     
     # Create figure
