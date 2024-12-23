@@ -1228,6 +1228,8 @@ class StateAnalyser:
     
     def visualise_state_characteristics(self, save_path: Optional[str] = None):
         """Create comprehensive visualisation of state characteristics with enhanced state transition labels"""
+        # Set larger font size
+        plt.rcParams.update({'font.size': 14})
         n_states = len(self.state_characteristics)
         
         # Create a grid of subplots
@@ -2054,6 +2056,9 @@ def visualise_state_space_3d(analysis_results: Dict,
                             save_path: Optional[str] = None):
     """
     Visualise the 3D behavioural state space and trajectories.
+    """
+    # Set larger font size
+    plt.rcParams.update({'font.size': 14})
     
     Args:
         analysis_results: Results from state space analysis
@@ -2109,6 +2114,9 @@ def visualise_transition_probs(analysis_results: Dict,
                              save_path: Optional[str] = None):
     """
     Visualise the state transition probability matrix.
+    """
+    # Set larger font size
+    plt.rcParams.update({'font.size': 14})
     
     Args:
         analysis_results: Results from state space analysis
