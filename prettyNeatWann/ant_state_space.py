@@ -1228,8 +1228,9 @@ class StateAnalyser:
     
     def visualise_state_characteristics(self, save_path: Optional[str] = None):
         """Create comprehensive visualisation of state characteristics with enhanced state transition labels"""
+        import matplotlib.pyplot as plt
         # Set larger font size
-        plt.rcParams.update({'font.size': 14})
+        plt.rcParams.update({'font.size': 12})
         n_states = len(self.state_characteristics)
         
         # Create a grid of subplots
@@ -1926,7 +1927,7 @@ def visualise_state_space_3d(analysis_results: Dict,
     """
     import matplotlib.pyplot as plt
     # Set larger font size
-    plt.rcParams.update({'font.size': 14})
+    plt.rcParams.update({'font.size': 12})
     from mpl_toolkits.mplot3d import Axes3D
 
     # Create figure
@@ -1983,7 +1984,7 @@ def visualise_transition_probs(analysis_results: Dict,
     """
     import matplotlib.pyplot as plt
     # Set larger font size
-    plt.rcParams.update({'font.size': 14})
+    plt.rcParams.update({'font.size': 12})
     
     # Create figure
     fig = plt.figure(figsize=(10, 8))
