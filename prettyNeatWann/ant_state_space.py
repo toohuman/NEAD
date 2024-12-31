@@ -905,13 +905,15 @@ class BehaviouralStateExtractor:
     
     def analyse_state_space(self, 
                           reduced_states: np.ndarray,
-                          n_regions: int = 5
+                          n_regions: int = 5,
+                          eps_mm: float = 10.0
                           ) -> Tuple[np.ndarray, List[List[int]]]:
         """Analyse the structure of the behavioural state space."""
         from sklearn.cluster import DBSCAN
 
         # Identify dense regions in state space
-        clustering = DBSCAN(eps=0.5, min_samples=5).fit(reduced_states)
+        eps_pixels = eps_mm * PIXELS_PER_MM
+        clustering = DBSCAN(eps=eps_pixels, min_samples=5).fit(reduced_states)
         labels = clustering.labels_
         
         # Group points by region
@@ -1594,35 +1596,25 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_dista
     
     eps_pixels = eps_mm * PIXELS_PER_MM
     
-    # Pre-allocate results dictionary
     clustering_stats = {
-        'n_clusters': [],
-        'cluster_sizes': [],
-        'isolated_ants': [],
-        'mean_cluster_density': [],
-        'positions': [],
-        'labels': [],
-        'cluster_ids': [],
-        'centroids': []
+        'n_clusters': [], 'cluster_sizes': [], 'isolated_ants': [],
+        'mean_cluster_density': [], 'positions': [], 'labels': [],
+        'cluster_ids': [], 'centroids': []
     }
     
-    # Extract all positions at once using vectorised operations
+    # Extract all positions vectorially
     ant_ids = sorted(list(set(idx[0] for idx in data.columns)))
     frame_indices = data.index.values
     
-    # Create position array with shape (n_frames, n_ants, 2)
     positions_array = np.full((len(frame_indices), len(ant_ids), 2), np.nan)
     for i, ant_id in enumerate(ant_ids):
         positions_array[:, i, 0] = data[(ant_id, 'x')].values
         positions_array[:, i, 1] = data[(ant_id, 'y')].values
     
-    # Track cluster IDs
     next_cluster_id = 0
     previous_centroids = {}
     
-    # Process each frame
     for t in tqdm(range(len(frame_indices)), desc="Analysing clustering behaviour"):
-        # Get valid positions for this frame
         frame_positions = positions_array[t]
         valid_mask = ~np.isnan(frame_positions).any(axis=1)
         valid_positions = frame_positions[valid_mask]
@@ -1633,50 +1625,25 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_dista
             if len(valid_positions) > 0:
                 clustering = DBSCAN(eps=eps_pixels, min_samples=max(2, len(valid_positions)-1)).fit(valid_positions)
                 labels = clustering.labels_
-                
-                # Calculate clustering stats with available positions
-                unique_clusters = len(set(labels[labels >= 0]))
-                clustering_stats['n_clusters'].append(unique_clusters)
-                clustering_stats['cluster_sizes'].append([np.sum(labels == i) for i in range(unique_clusters)])
-                clustering_stats['mean_cluster_density'].append(len(valid_positions) / (np.pi * eps_pixels ** 2) if unique_clusters > 0 else 0)
-                clustering_stats['isolated_ants'].append(np.sum(labels == -1))
-                clustering_stats['positions'].append(valid_positions.tolist())
-                clustering_stats['labels'].append(labels.tolist())
-                clustering_stats['cluster_ids'].append(list(range(unique_clusters)))
-                clustering_stats['centroids'].append({i: np.mean(valid_positions[labels == i], axis=0) for i in range(unique_clusters)})
-            else:
-                clustering_stats['n_clusters'].append(0)
-                clustering_stats['cluster_sizes'].append([])
-                clustering_stats['mean_cluster_density'].append(0)
-                clustering_stats['isolated_ants'].append(0)
-                clustering_stats['positions'].append([])
-                clustering_stats['labels'].append([])
-                clustering_stats['cluster_ids'].append([])
-                clustering_stats['centroids'].append({})
-            continue  # Skip the rest of the loop
+
         
-        # Perform DBSCAN clustering
+        # Single DBSCAN call
         clustering = DBSCAN(eps=eps_pixels, min_samples=min_samples).fit(valid_positions)
         labels = clustering.labels_
-        
-        # Calculate centroids using vectorised operations
         unique_labels = np.unique(labels[labels >= 0])
+        
+        # Track clusters
         current_centroids = {}
         current_id_map = {}
         
         if len(unique_labels) > 0:
-            # Vectorised centroid calculation
-            centroids = np.array([
-                np.mean(valid_positions[labels == label], axis=0)
-                for label in unique_labels
-            ])
+            centroids = np.array([np.mean(valid_positions[labels == label], axis=0) 
+                                for label in unique_labels])
             
-            # Vectorised distance calculation between all centroids
             if previous_centroids:
                 prev_centroid_array = np.array(list(previous_centroids.values()))
                 distances = cdist(centroids, prev_centroid_array)
                 
-                # Find best matches using vectorised operations
                 for i, label in enumerate(unique_labels):
                     if distances[i].size > 0:
                         min_dist_idx = np.argmin(distances[i])
@@ -1687,17 +1654,15 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_dista
                             current_id_map[label] = matched_id
                             current_centroids[matched_id] = centroids[i]
                             continue
-                    
-                    # No match found, assign new ID
+                            
                     current_id_map[label] = next_cluster_id
                     current_centroids[next_cluster_id] = centroids[i]
                     next_cluster_id += 1
-        
-        # Update labels with consistent IDs using vectorised operation
+                    
+        # Update stats
         consistent_labels = np.array([current_id_map.get(label, -1) if label >= 0 else -1 
                                     for label in labels])
         
-        # Calculate statistics using vectorised operations
         unique_clusters = len(current_centroids)
         if unique_clusters > 0:
             cluster_sizes = np.bincount(consistent_labels[consistent_labels >= 0])
@@ -1705,10 +1670,8 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_dista
             densities = cluster_sizes / cluster_areas
             mean_density = np.mean(densities)
         else:
-            cluster_sizes = []
-            mean_density = 0
-        
-        # Store results
+            cluster_sizes, mean_density = [], 0
+            
         clustering_stats['positions'].append(valid_positions.tolist())
         clustering_stats['labels'].append(consistent_labels.tolist())
         clustering_stats['cluster_ids'].append(list(current_centroids.keys()))
@@ -1718,7 +1681,6 @@ def analyse_colony_clustering(data, eps_mm=10, min_samples=3, max_centroid_dista
         clustering_stats['mean_cluster_density'].append(mean_density)
         clustering_stats['isolated_ants'].append(np.sum(consistent_labels == -1))
         
-        # Update previous centroids
         previous_centroids = current_centroids.copy()
     
     return clustering_stats
