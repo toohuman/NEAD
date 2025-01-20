@@ -719,14 +719,19 @@ def animate_clustering(clustering_stats: Dict[str, List],
                     c='gray', marker='o', s=50, alpha=0.5, 
                     label='Isolated')
         
+        # Create a mapping from cluster_ids to sequential numbers starting from 1
+        active_clusters = sorted(cluster_ids)
+        cluster_number_map = {cluster_id: i+1 for i, cluster_id in enumerate(active_clusters)}
+        
         # Plot clustered ants using consistent colors based on cluster_ids
-        for i, cluster_id in enumerate(cluster_ids):
+        for cluster_id in active_clusters:
             mask = labels == cluster_id
             cluster_points = positions[mask]
-            color = colors[cluster_id % len(colors)]  # Use cluster_id for consistent coloring
+            color = colors[cluster_id % len(colors)]  # Keep consistent colors
+            cluster_number = cluster_number_map[cluster_id]  # Use sequential numbering
             ax.scatter(cluster_points[:, 0], cluster_points[:, 1],
                     c=[color], marker='o', s=50, 
-                    label=f'Cluster {cluster_id}')
+                    label=f'Cluster {cluster_number}')
         
         # Add information and statistics
         minutes_elapsed = (frame / effective_fps) / 60  # Convert frames to minutes
