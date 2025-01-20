@@ -32,7 +32,7 @@ The purpose of this project is to evolve neural networks that can accurately rep
 - Scikit-learn
 - Matplotlib
 - Seaborn
-- OpenAI Gym
+- Gymnasium
 - PyTorch
 
 ## Usage
@@ -43,3 +43,17 @@ Main scripts can be found in the `prettyNeatWann/` directory:
 
 ## License
 [To be added]
+
+## Acknowledgements
+This project builds upon the Weight Agnostic Neural Networks (WANN) implementation from the [brain-tokyo-workshop](https://github.com/google/brain-tokyo-workshop/tree/master/WANNRelease) repository by Google Research. The original WANN implementation is described in:
+```
+bibtex
+@article{wann2019,
+author = {Adam Gaier and David Ha},
+title = {Weight Agnostic Neural Networks},
+eprint = {arXiv:1906.04358},
+url = {https://weightagnostic.github.io},
+note = "\url{https://weightagnostic.github.io}",
+year = {2019}
+}
+```
