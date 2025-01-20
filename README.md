@@ -7,10 +7,9 @@
 - Ilya Horiguchi ([@NeoGendaijin](https://github.com/NeoGendaijin))
 
 ## Project Overview
-<div style="display: flex; justify-content: space-between; margin: 20px 0;">
-    <img src="docs/video_screenshot.png" alt="Video recordings of real ants" style="width: 48%; height: 300px; object-fit: cover;">
-    <img src="docs/sim_screenshot.png" alt="Simulated ant behaviour" style="width: 48%; height: 300px; object-fit: cover;">
-</div>
+| Real Ants | Simulated Behaviour |
+|:-:|:-:|
+| <img src="video_screenshot.png" alt="Video recordings of real ants" height="300"> | <img src="sim_screenshot.png" alt="Simulated ant behaviour" height="300"> |
 
 The purpose of this project is to evolve neural networks that can accurately reproduce realistic ant dynamics and, eventually, colony-level collective behaviours.
 
