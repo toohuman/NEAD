@@ -656,57 +656,55 @@ class BehaviouralStateExtractor:
     def extract_temporal_context(self,
                                current_state: BehaviouralState,
                                prev_states: List[BehaviouralState],
-                               window_size: int = 60,  # 1 second at 60fps
-                               velocity_threshold: float = 0.5,  # mm/s
+                               window_size: int = 60  # 1 second at 60fps
                                ) -> Tuple[np.ndarray, Dict[str, float], Dict[str, float]]:
-        """Extract temporal context features with explicit behavioural transitions."""
+        """Extract temporal context features based on individual state changes."""
         if not prev_states:
             return np.zeros(1), {}, {}
             
-        # Define behavioural state changes we care about
+        # Track individual state changes
         motion_changes = []  # Changes between moving/stopped
-        social_changes = []  # Changes in clustering state
+        social_changes = []  # Changes in social proximity
         activity_bursts = []  # Sudden increases in activity
         
         for i in range(1, len(prev_states)):
             prev = prev_states[i-1]
             curr = prev_states[i]
             
-            # Detect motion state changes
-            prev_moving = np.mean(np.linalg.norm(prev.velocities, axis=1)) > velocity_threshold
-            curr_moving = np.mean(np.linalg.norm(curr.velocities, axis=1)) > velocity_threshold
+            # Detect motion state changes (using velocity)
+            prev_moving = np.mean(np.linalg.norm(prev.velocities, axis=1)) > self.velocity_threshold
+            curr_moving = np.mean(np.linalg.norm(curr.velocities, axis=1)) > self.velocity_threshold
             if prev_moving != curr_moving:
                 motion_changes.append(i)
-                
-            # Detect social state changes (using clustering)
-            prev_clustered = curr.cluster_config['n_clusters'] > prev.cluster_config['n_clusters']
-            if prev_clustered:
+            
+            # Detect social state changes (using nearest neighbor distance)
+            prev_social = np.mean(prev.neighbor_distances[:, 0]) < self.nn_thresholds[0]
+            curr_social = np.mean(curr.neighbor_distances[:, 0]) < self.nn_thresholds[0]
+            if prev_social != curr_social:
                 social_changes.append(i)
-                
-            # Detect activity bursts
-            activity_change = curr.activity_level - prev.activity_level
+            
+            # Detect activity bursts (using acceleration)
+            activity_change = (np.mean(np.linalg.norm(curr.accelerations, axis=1)) - 
+                             np.mean(np.linalg.norm(prev.accelerations, axis=1)))
             if activity_change > self.activity_threshold:
                 activity_bursts.append(i)
         
         # Calculate transition rates
         transition_rates = {
             'activity_change_rate': len(motion_changes) / window_size,
-            'cluster_change_rate': len(social_changes) / window_size,
+            'social_change_rate': len(social_changes) / window_size,
             'activity_burst_rate': len(activity_bursts) / window_size
         }
         
         # Extract time-dependent features
         time_features = {
             'recent_motion_changes': len([x for x in motion_changes if x >= len(prev_states) - 10]),
-            'time_since_last_cluster': min([len(prev_states) - x for x in social_changes]) if social_changes else window_size,
-            'activity_trend': np.polyfit(
-                np.arange(len(prev_states)),
-                [state.activity_level for state in prev_states],
-                1
-            )[0]
+            'time_since_last_social': min([len(prev_states) - x for x in social_changes]) if social_changes else window_size,
+            'activity_trend': np.mean([np.mean(np.linalg.norm(state.velocities, axis=1)) 
+                                     for state in prev_states[-10:]])  # trend over last 10 states
         }
         
-        # Create state changes array with explicit behavioural transitions
+        # Create state changes array
         state_changes = np.zeros(len(prev_states))
         state_changes[motion_changes] += 1
         state_changes[social_changes] += 1
@@ -718,7 +716,7 @@ class BehaviouralStateExtractor:
                      positions: np.ndarray,  # Current positions
                      prev_positions: np.ndarray,  # Historical positions
                      prev_velocities: np.ndarray,  # Historical velocities
-                     prev_states: List[Dict[str, any]] = None
+                     prev_states: List[BehaviouralState] = None
                      ) -> BehaviouralState:
         """Extract complete behavioural state."""
         # Extract individual motion features
@@ -754,17 +752,8 @@ class BehaviouralStateExtractor:
             radius = 10 * PIXELS_PER_MM  # 10mm radius
             local_density[i] = np.sum(distances < radius) / (np.pi * radius**2)
         
-        # Extract temporal context if previous states available
-        if prev_states:
-            state_changes, transition_rates, time_features = self.extract_temporal_context(
-                prev_states, window_size=self.fps
-            )
-        else:
-            state_changes = np.zeros(1)
-            transition_rates = {'activity_change_rate': 0}
-            time_features = {'activity_trend': 0}
-        
-        return BehaviouralState(
+        # Create current state
+        current_state = BehaviouralState(
             velocities=velocities,
             accelerations=accelerations,
             turn_rates=turn_rates,
@@ -773,10 +762,29 @@ class BehaviouralStateExtractor:
             stop_go_patterns=stop_go_patterns,
             neighbor_distances=neighbor_distances,
             local_density=local_density,
-            state_changes=state_changes,
-            transition_rates=transition_rates,
-            time_features=time_features
+            state_changes=np.zeros(1),  # placeholder
+            transition_rates={},  # placeholder
+            time_features={}  # placeholder
         )
+        
+        # Extract temporal context if previous states available
+        if prev_states:
+            state_changes, transition_rates, time_features = self.extract_temporal_context(
+                current_state,
+                prev_states,
+                window_size=self.fps
+            )
+        else:
+            state_changes = np.zeros(1)
+            transition_rates = {'activity_change_rate': 0}
+            time_features = {'activity_trend': 0}
+        
+        # Update the state with temporal context
+        current_state.state_changes = state_changes
+        current_state.transition_rates = transition_rates
+        current_state.time_features = time_features
+        
+        return current_state
     
     def state_to_vector(self, state: BehaviouralState) -> np.ndarray:
         """Convert behavioural state to feature vector for dimensionality reduction."""
@@ -861,7 +869,7 @@ class BehaviouralStateExtractor:
             'mean_neighbor_dist', 'std_neighbor_dist',
             'min_neighbor_dist', 'max_neighbor_dist',
             'mean_state_change', 'activity_change_rate',
-            'cluster_change_rate', 'activity_trend', 'clustering_trend'
+            'social_change_rate', 'activity_trend', 'clustering_trend'
         ]
     
         #---------------------------------------------------------
