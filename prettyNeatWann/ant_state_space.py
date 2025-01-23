@@ -421,11 +421,9 @@ class BehaviouralState:
     movement_history: np.ndarray  # Shape: (n_ants, history_length)
     stop_go_patterns: np.ndarray  # Shape: (n_ants, history_length)
     
-    # Colony-level states
-    cluster_config: Dict[str, any]  # Current clustering configuration
+    # Social context (individual-level)
     neighbor_distances: np.ndarray  # Shape: (n_ants, n_nearest)
-    activity_level: float  # Overall colony activity
-    spatial_distribution: Dict[str, float]  # Metrics of spatial distribution
+    local_density: np.ndarray  # Shape: (n_ants,)
     
     # Temporal context
     state_changes: np.ndarray  # Recent state transitions
@@ -720,7 +718,6 @@ class BehaviouralStateExtractor:
                      positions: np.ndarray,  # Current positions
                      prev_positions: np.ndarray,  # Historical positions
                      prev_velocities: np.ndarray,  # Historical velocities
-                     cluster_info: Dict[str, any],
                      prev_states: List[Dict[str, any]] = None
                      ) -> BehaviouralState:
         """Extract complete behavioural state."""
@@ -734,19 +731,38 @@ class BehaviouralStateExtractor:
             prev_positions
         )
         
-        # Extract colony-level features
-        cluster_config, neighbor_distances, activity_level, spatial_distribution = \
-            self.extract_colony_state(positions, cluster_info)
+        # Extract individual social features
+        neighbor_distances = np.zeros((len(positions), self.n_nearest))
+        local_density = np.zeros(len(positions))
+        
+        for i in range(len(positions)):
+            # Calculate distances to other ants
+            distances = np.linalg.norm(positions - positions[i], axis=1)
+            distances[i] = np.inf  # Exclude self
+            
+            # Get nearest neighbour distances
+            k = min(self.n_nearest, len(distances) - 1)
+            if k > 0:
+                nearest_indices = np.argpartition(distances, k)[:k]
+                neighbor_distances[i, :k] = distances[nearest_indices]
+                if k < self.n_nearest:
+                    neighbor_distances[i, k:] = np.max(distances)
+            else:
+                neighbor_distances[i, :] = np.sqrt((2 * ARENA_RADIUS) ** 2)
+            
+            # Calculate local density (ants within radius)
+            radius = 10 * PIXELS_PER_MM  # 10mm radius
+            local_density[i] = np.sum(distances < radius) / (np.pi * radius**2)
         
         # Extract temporal context if previous states available
         if prev_states:
             state_changes, transition_rates, time_features = self.extract_temporal_context(
-                cluster_config, prev_states, window_size=self.fps
+                prev_states, window_size=self.fps
             )
         else:
             state_changes = np.zeros(1)
-            transition_rates = {'activity_change_rate': 0, 'cluster_change_rate': 0}
-            time_features = {'activity_trend': 0, 'clustering_trend': 0}
+            transition_rates = {'activity_change_rate': 0}
+            time_features = {'activity_trend': 0}
         
         return BehaviouralState(
             velocities=velocities,
@@ -755,10 +771,8 @@ class BehaviouralStateExtractor:
             curvatures=curvatures,
             movement_history=movement_history,
             stop_go_patterns=stop_go_patterns,
-            cluster_config=cluster_config,
             neighbor_distances=neighbor_distances,
-            activity_level=activity_level,
-            spatial_distribution=spatial_distribution,
+            local_density=local_density,
             state_changes=state_changes,
             transition_rates=transition_rates,
             time_features=time_features
@@ -771,11 +785,8 @@ class BehaviouralStateExtractor:
         # Helper function to safely compute statistics
         def safe_stat(func, arr, axis=None):
             if isinstance(arr, np.ndarray) and arr.size > 0:
-                # Replace inf and -inf with nan
                 arr = np.where(np.isinf(arr), np.nan, arr)
-                # Compute stat, defaulting to 0 if all values are nan
                 result = func(arr[~np.isnan(arr)], axis=axis) if np.any(~np.isnan(arr)) else 0
-                # Ensure result is finite
                 return 0 if np.isinf(result) else result
             return 0
         
@@ -799,31 +810,21 @@ class BehaviouralStateExtractor:
             safe_stat(np.std, state.stop_go_patterns)
         ])
         
-        # Colony-level features
-        features.extend([
-            safe_stat(float, state.cluster_config['n_clusters']),
-            safe_stat(np.mean, state.cluster_config['cluster_sizes']),
-            safe_stat(float, state.cluster_config['mean_density']),
-            safe_stat(float, state.activity_level),
-            safe_stat(float, state.spatial_distribution['area']),
-            safe_stat(float, state.spatial_distribution['density'])
-        ])
-        
-        # Neighbor distance features
+        # Social features (individual-level)
         features.extend([
             safe_stat(np.mean, state.neighbor_distances),
             safe_stat(np.std, state.neighbor_distances),
             safe_stat(np.min, state.neighbor_distances),
-            safe_stat(np.max, state.neighbor_distances)
+            safe_stat(np.max, state.neighbor_distances),
+            safe_stat(np.mean, state.local_density),
+            safe_stat(np.std, state.local_density)
         ])
         
         # Temporal features
         features.extend([
             safe_stat(np.mean, state.state_changes),
             safe_stat(float, state.transition_rates['activity_change_rate']),
-            safe_stat(float, state.transition_rates['cluster_change_rate']),
-            safe_stat(float, state.time_features['activity_trend']),
-            safe_stat(float, state.time_features.get('time_since_last_cluster', 0))
+            safe_stat(float, state.time_features['activity_trend'])
         ])
         
         return np.array(features)
@@ -1800,7 +1801,6 @@ def integrate_state_space_analysis(processed_data: Dict,
             current_positions,
             position_window,
             velocity_window,
-            cluster_info,
             prev_states=states[-window_size:] if len(states) >= window_size else None
         )
         
