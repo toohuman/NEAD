@@ -1727,7 +1727,6 @@ def generate_pc_interpretation(component_loadings: List[Tuple[str, float]]) -> s
     return " and ".join(interpretation_parts) if interpretation_parts else "mixed effects"
 
 def integrate_state_space_analysis(processed_data: Dict,
-                                clustering_stats: Dict,
                                 fps: float = 60.0,
                                 scale: int = 2) -> Dict[str, Any]:
     """
@@ -1735,7 +1734,6 @@ def integrate_state_space_analysis(processed_data: Dict,
     
     Args:
         processed_data: Dictionary of processed ant data
-        clustering_stats: Dictionary of clustering statistics
         fps: Frame rate of the original video
         scale: Temporal downsampling factor
     
@@ -1756,8 +1754,8 @@ def integrate_state_space_analysis(processed_data: Dict,
     ant_ids = list(processed_data.keys())
     n_ants = len(ant_ids)
     
-    # Determine number of timesteps from clustering stats
-    n_timesteps = len(clustering_stats['positions'])
+    # Determine number of timesteps from trajectory features of the ants
+    n_timesteps = len(processed_data[ant_ids[0]]['trajectory_features'].velocities)
     
     print("Pre-processing position and velocity data...")
     # Pre-allocate arrays for positions and velocities
@@ -1767,16 +1765,20 @@ def integrate_state_space_analysis(processed_data: Dict,
     # Fill position and velocity histories with progress bar
     for t in tqdm(range(n_timesteps), desc="Building position/velocity history"):
         for i, ant_id in enumerate(ant_ids):
-            # Get position data
-            if t < len(clustering_stats['positions']):
-                positions = np.array(clustering_stats['positions'][t])
-                if i < len(positions):
-                    positions_history[t, i] = positions[i]
+            # Get position data from trajectory features
+            traj = processed_data[ant_id]['trajectory_features']
+            if hasattr(traj, 'positions'):
+                positions_history[t, i] = traj.positions[t]
+            else:
+                # Reconstruct positions from velocities by integrating
+                if t == 0:
+                    positions_history[t, i] = np.array([0., 0.])  # Starting position
+                else:
+                    positions_history[t, i] = (positions_history[t-1, i] + 
+                                             traj.velocities[t] * (1/effective_fps))
             
-            # Calculate velocities if possible
-            if t > 0:
-                velocities_history[t, i] = (positions_history[t, i] - 
-                                          positions_history[t-1, i]) / (1/effective_fps)
+            # Get velocities directly from trajectory features
+            velocities_history[t, i] = traj.velocities[t]
     
     # Process each timestep
     window_size = int(effective_fps)  # 1 second window
@@ -1787,14 +1789,6 @@ def integrate_state_space_analysis(processed_data: Dict,
         current_positions = positions_history[t]
         position_window = positions_history[t-window_size:t]
         velocity_window = velocities_history[t-window_size:t]
-        
-        # Get clustering info for this timestep
-        cluster_info = {
-            'n_clusters': clustering_stats['n_clusters'][t],
-            'cluster_sizes': clustering_stats['cluster_sizes'][t],
-            'mean_cluster_density': clustering_stats['mean_cluster_density'][t]
-        }
-        # print(f"Frame {t} cluster info:", cluster_info)
         
         # Extract state
         state = state_extractor.extract_state(
@@ -2103,15 +2097,10 @@ def main():
     print("\nProcessing ant trajectories...")
     processed_data = process_ant_data(data)
     
-    # Analyse colony clustering
-    print("\nAnalysing colony clustering...")
-    clustering_stats = analyse_colony_clustering(data)
-    
     # Perform state space analysis
     print("\nPerforming state space analysis...")
     analysis_results = integrate_state_space_analysis(
         processed_data,
-        clustering_stats,
         fps=args.fps,
         scale=args.scale
     )
