@@ -2079,6 +2079,9 @@ def main():
                       help='Start time of analysis window in minutes')
     parser.add_argument('--time_window_end', type=float, default=None,
                       help='End time of analysis window in minutes')
+    parser.add_argument('--ext', type=str, default='pdf',
+                      help='File extension for output visualisations (e.g., pdf, png)')
+
     args = parser.parse_args()
     
     # Create save directory
@@ -2151,18 +2154,18 @@ def main():
         time_suffix = f'_{int(args.time_window_start)}-{int(args.time_window_end)}min'
     
     # Save behavioral state space plot
-    state_space_file = f'behavioural_state_space{time_suffix}.pdf'
+    state_space_file = f'behavioural_state_space{time_suffix}.{args.ext}'
     visualise_state_space_3d(analysis_results,
                             save_path=str(save_dir / state_space_file))
     
     # Save state transition probabilities plot  
-    trans_prob_file = f'state_trans_probs{time_suffix}.pdf'
+    trans_prob_file = f'state_trans_probs{time_suffix}.{args.ext}'
     visualise_transition_probs(analysis_results,
                              save_path=str(save_dir / trans_prob_file))
     
     # Generate state analysis visualisation
     print("\nGenerating state analysis visualisations...")
-    state_vis_file = f'state_analysis{time_suffix}.pdf'
+    state_vis_file = f'state_analysis{time_suffix}.{args.ext}'
     analysis_results['state_analyser'].visualise_state_characteristics(
         save_path=str(save_dir / state_vis_file))
     
