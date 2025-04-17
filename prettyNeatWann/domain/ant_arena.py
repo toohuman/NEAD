@@ -71,23 +71,10 @@ class AntArenaEnv(gym.Env):
         if self.world is not None:
             del self.world
         self.world = b2World(gravity=(0, 0), doSleep=True)
-        self._create_arena()
         self._create_ants()
         obs = self._get_obs()
         info = {}
         return obs, info
-
-    def _create_arena(self):
-        # Static circular boundary (approximated by many small static bodies)
-        N = 40
-        for i in range(N):
-            angle = 2 * np.pi * i / N
-            x = self.arena_radius * np.cos(angle)
-            y = self.arena_radius * np.sin(angle)
-            body = self.world.CreateStaticBody(
-                position=(x, y),
-                shapes=b2CircleShape(radius=1.5)
-            )
 
     def _create_ants(self):
         # Create agent ant
@@ -100,7 +87,7 @@ class AntArenaEnv(gym.Env):
                 friction=0.3,
                 restitution=0.0,
             ),
-            linearDamping=0.5,  # Lower damping for more visible movement
+            linearDamping=0.5,
             angularDamping=0.5,
         )
         # Create obstacle ants (random positions for now)
@@ -145,22 +132,27 @@ class AntArenaEnv(gym.Env):
         self.agent_body.ApplyTorque(turn, wake=True)
         # Step physics
         self.world.Step(1.0 / 30.0, 6, 2)
-        # Wall constraint: prevent agent from leaving arena
-        pos = self.agent_body.position
-        dist = np.hypot(pos.x, pos.y)
-        max_dist = self.arena_radius - self.ant_radius
-        if dist > max_dist:
-            # Project back to boundary
-            new_x = pos.x * max_dist / dist
-            new_y = pos.y * max_dist / dist
-            self.agent_body.position = (new_x, new_y)
-            # Remove outward velocity
-            vel = self.agent_body.linearVelocity
-            outward = np.array([pos.x, pos.y]) / dist
-            v_out = np.dot([vel.x, vel.y], outward)
-            if v_out > 0:
-                v_tan = np.array([vel.x, vel.y]) - v_out * outward
-                self.agent_body.linearVelocity = (v_tan[0], v_tan[1])
+        # Wall constraint: prevent any ant from leaving arena
+        def constrain_to_arena(body):
+            pos = body.position
+            dist = np.hypot(pos.x, pos.y)
+            max_dist = self.arena_radius - self.ant_radius
+            if dist > max_dist:
+                # Project back to boundary
+                new_x = pos.x * max_dist / dist
+                new_y = pos.y * max_dist / dist
+                body.position = (new_x, new_y)
+                # Remove outward velocity
+                vel = body.linearVelocity
+                outward = np.array([pos.x, pos.y]) / dist
+                v_out = np.dot([vel.x, vel.y], outward)
+                if v_out > 0:
+                    v_tan = np.array([vel.x, vel.y]) - v_out * outward
+                    body.linearVelocity = (v_tan[0], v_tan[1])
+        # Constrain agent and all obstacle ants
+        constrain_to_arena(self.agent_body)
+        for body in self.obstacle_bodies:
+            constrain_to_arena(body)
         obs = self._get_obs()
         reward = 0.0  # Placeholder
         terminated = False
@@ -172,11 +164,11 @@ class AntArenaEnv(gym.Env):
         if not HAS_MPL:
             print("matplotlib not installed: cannot render")
             return
-        # Dynamically scale so arena fills 90% of window
-        fig_size = 8
-        pixel_window = 800
-        arena_pixel_radius = int(0.9 * pixel_window / 2)
-        scale = arena_pixel_radius / self.arena_radius
+        # Dynamically scale so the fixed 100mm arena fills the window
+        fig_size = 10  # Window size in inches
+        pixel_window = 1000  # Window size in pixels
+        arena_pixel_radius = int(pixel_window * 0.5)  # 0.98 of window diameter, for minimal margin
+        scale = arena_pixel_radius / self.arena_radius  # pixels per mm
         if self.viewer is None:
             self.viewer = plt.figure(figsize=(fig_size, fig_size))
             self.ax = self.viewer.add_subplot(1, 1, 1)
@@ -193,7 +185,7 @@ class AntArenaEnv(gym.Env):
             p = body.position
             c = plt.Circle((p.x * scale, p.y * scale), self.ant_radius * scale, color='gray', zorder=1)
             self.ax.add_patch(c)
-        lim = self.arena_radius * scale * 1.05
+        lim = self.arena_radius * scale
         self.ax.set_xlim(-lim, lim)
         self.ax.set_ylim(-lim, lim)
         self.ax.set_aspect('equal')
