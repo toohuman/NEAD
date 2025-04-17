@@ -421,11 +421,9 @@ class BehaviouralState:
     movement_history: np.ndarray  # Shape: (n_ants, history_length)
     stop_go_patterns: np.ndarray  # Shape: (n_ants, history_length)
     
-    # Colony-level states
-    cluster_config: Dict[str, any]  # Current clustering configuration
+    # Social context (individual-level)
     neighbor_distances: np.ndarray  # Shape: (n_ants, n_nearest)
-    activity_level: float  # Overall colony activity
-    spatial_distribution: Dict[str, float]  # Metrics of spatial distribution
+    local_density: np.ndarray  # Shape: (n_ants,)
     
     # Temporal context
     state_changes: np.ndarray  # Recent state transitions
@@ -515,14 +513,16 @@ class BehaviouralStateExtractor:
                  seconds_of_history: float = 1.0,  # How many seconds of history to maintain
                  n_nearest: int = 5,  # Number of nearest neighbours to track
                  fps: float = 60.0,
-                 activity_threshold: float = 0.2):  # Threshold for activity bursts
+                 velocity_threshold: float = 0.2,  # Renamed from activity_threshold for clarity
+                 max_distance_mm: float = 100.0):
         self.history_length = int(seconds_of_history * fps)
         self.n_nearest = n_nearest
         self.fps = fps
         self.dt = 1.0 / fps
         self.scaler = StandardScaler()
-        self.pca = PCA(n_components=10)  # Reduce to 10 principal components
-        self.activity_threshold = activity_threshold
+        self.pca = PCA(n_components=10)
+        self.velocity_threshold = velocity_threshold  # Renamed for consistency
+        self.max_distance = max_distance_mm * PIXELS_PER_MM
         
     def extract_individual_motion(self, 
                                 positions: np.ndarray,  # Shape: (n_ants, 2)
@@ -658,57 +658,55 @@ class BehaviouralStateExtractor:
     def extract_temporal_context(self,
                                current_state: BehaviouralState,
                                prev_states: List[BehaviouralState],
-                               window_size: int = 60,  # 1 second at 60fps
-                               velocity_threshold: float = 0.5,  # mm/s
+                               window_size: int = 60  # 1 second at 60fps
                                ) -> Tuple[np.ndarray, Dict[str, float], Dict[str, float]]:
-        """Extract temporal context features with explicit behavioural transitions."""
+        """Extract temporal context features based on individual state changes."""
         if not prev_states:
             return np.zeros(1), {}, {}
             
-        # Define behavioural state changes we care about
+        # Track individual state changes
         motion_changes = []  # Changes between moving/stopped
-        social_changes = []  # Changes in clustering state
+        social_changes = []  # Changes in social proximity
         activity_bursts = []  # Sudden increases in activity
         
         for i in range(1, len(prev_states)):
             prev = prev_states[i-1]
             curr = prev_states[i]
             
-            # Detect motion state changes
-            prev_moving = np.mean(np.linalg.norm(prev.velocities, axis=1)) > velocity_threshold
-            curr_moving = np.mean(np.linalg.norm(curr.velocities, axis=1)) > velocity_threshold
+            # Detect motion state changes (using velocity)
+            prev_moving = np.mean(np.linalg.norm(prev.velocities, axis=1)) > self.velocity_threshold
+            curr_moving = np.mean(np.linalg.norm(curr.velocities, axis=1)) > self.velocity_threshold
             if prev_moving != curr_moving:
                 motion_changes.append(i)
-                
-            # Detect social state changes (using clustering)
-            prev_clustered = curr.cluster_config['n_clusters'] > prev.cluster_config['n_clusters']
-            if prev_clustered:
+            
+            # Detect social state changes (using nearest neighbor distance)
+            prev_social = np.mean(prev.neighbor_distances[:, 0]) < self.nn_thresholds[0]
+            curr_social = np.mean(curr.neighbor_distances[:, 0]) < self.nn_thresholds[0]
+            if prev_social != curr_social:
                 social_changes.append(i)
-                
-            # Detect activity bursts
-            activity_change = curr.activity_level - prev.activity_level
+            
+            # Detect activity bursts (using acceleration)
+            activity_change = (np.mean(np.linalg.norm(curr.accelerations, axis=1)) - 
+                             np.mean(np.linalg.norm(prev.accelerations, axis=1)))
             if activity_change > self.activity_threshold:
                 activity_bursts.append(i)
         
         # Calculate transition rates
         transition_rates = {
             'activity_change_rate': len(motion_changes) / window_size,
-            'cluster_change_rate': len(social_changes) / window_size,
+            'social_change_rate': len(social_changes) / window_size,
             'activity_burst_rate': len(activity_bursts) / window_size
         }
         
         # Extract time-dependent features
         time_features = {
             'recent_motion_changes': len([x for x in motion_changes if x >= len(prev_states) - 10]),
-            'time_since_last_cluster': min([len(prev_states) - x for x in social_changes]) if social_changes else window_size,
-            'activity_trend': np.polyfit(
-                np.arange(len(prev_states)),
-                [state.activity_level for state in prev_states],
-                1
-            )[0]
+            'time_since_last_social': min([len(prev_states) - x for x in social_changes]) if social_changes else window_size,
+            'activity_trend': np.mean([np.mean(np.linalg.norm(state.velocities, axis=1)) 
+                                     for state in prev_states[-10:]])  # trend over last 10 states
         }
         
-        # Create state changes array with explicit behavioural transitions
+        # Create state changes array
         state_changes = np.zeros(len(prev_states))
         state_changes[motion_changes] += 1
         state_changes[social_changes] += 1
@@ -720,8 +718,7 @@ class BehaviouralStateExtractor:
                      positions: np.ndarray,  # Current positions
                      prev_positions: np.ndarray,  # Historical positions
                      prev_velocities: np.ndarray,  # Historical velocities
-                     cluster_info: Dict[str, any],
-                     prev_states: List[Dict[str, any]] = None
+                     prev_states: List[BehaviouralState] = None
                      ) -> BehaviouralState:
         """Extract complete behavioural state."""
         # Extract individual motion features
@@ -734,35 +731,62 @@ class BehaviouralStateExtractor:
             prev_positions
         )
         
-        # Extract colony-level features
-        cluster_config, neighbor_distances, activity_level, spatial_distribution = \
-            self.extract_colony_state(positions, cluster_info)
+        # Extract individual social features
+        neighbor_distances = np.zeros((len(positions), self.n_nearest))
+        local_density = np.zeros(len(positions))
         
-        # Extract temporal context if previous states available
-        if prev_states:
-            state_changes, transition_rates, time_features = self.extract_temporal_context(
-                cluster_config, prev_states, window_size=self.fps
-            )
-        else:
-            state_changes = np.zeros(1)
-            transition_rates = {'activity_change_rate': 0, 'cluster_change_rate': 0}
-            time_features = {'activity_trend': 0, 'clustering_trend': 0}
+        for i in range(len(positions)):
+            # Calculate distances to other ants
+            distances = np.linalg.norm(positions - positions[i], axis=1)
+            distances[i] = np.inf  # Exclude self
+            
+            # Get nearest neighbour distances
+            k = min(self.n_nearest, len(distances) - 1)
+            if k > 0:
+                nearest_indices = np.argpartition(distances, k)[:k]
+                neighbor_distances[i, :k] = distances[nearest_indices]
+                if k < self.n_nearest:
+                    neighbor_distances[i, k:] = np.max(distances)
+            else:
+                neighbor_distances[i, :] = np.sqrt((2 * ARENA_RADIUS) ** 2)
+            
+            # Calculate local density (ants within radius)
+            radius = 10 * PIXELS_PER_MM  # 10mm radius
+            local_density[i] = np.sum(distances < radius) / (np.pi * radius**2)
         
-        return BehaviouralState(
+        # Create current state
+        current_state = BehaviouralState(
             velocities=velocities,
             accelerations=accelerations,
             turn_rates=turn_rates,
             curvatures=curvatures,
             movement_history=movement_history,
             stop_go_patterns=stop_go_patterns,
-            cluster_config=cluster_config,
             neighbor_distances=neighbor_distances,
-            activity_level=activity_level,
-            spatial_distribution=spatial_distribution,
-            state_changes=state_changes,
-            transition_rates=transition_rates,
-            time_features=time_features
+            local_density=local_density,
+            state_changes=np.zeros(1),  # placeholder
+            transition_rates={},  # placeholder
+            time_features={}  # placeholder
         )
+        
+        # Extract temporal context if previous states available
+        if prev_states:
+            state_changes, transition_rates, time_features = self.extract_temporal_context(
+                current_state,
+                prev_states,
+                window_size=self.fps
+            )
+        else:
+            state_changes = np.zeros(1)
+            transition_rates = {'activity_change_rate': 0}
+            time_features = {'activity_trend': 0}
+        
+        # Update the state with temporal context
+        current_state.state_changes = state_changes
+        current_state.transition_rates = transition_rates
+        current_state.time_features = time_features
+        
+        return current_state
     
     def state_to_vector(self, state: BehaviouralState) -> np.ndarray:
         """Convert behavioural state to feature vector for dimensionality reduction."""
@@ -771,11 +795,8 @@ class BehaviouralStateExtractor:
         # Helper function to safely compute statistics
         def safe_stat(func, arr, axis=None):
             if isinstance(arr, np.ndarray) and arr.size > 0:
-                # Replace inf and -inf with nan
                 arr = np.where(np.isinf(arr), np.nan, arr)
-                # Compute stat, defaulting to 0 if all values are nan
                 result = func(arr[~np.isnan(arr)], axis=axis) if np.any(~np.isnan(arr)) else 0
-                # Ensure result is finite
                 return 0 if np.isinf(result) else result
             return 0
         
@@ -799,31 +820,21 @@ class BehaviouralStateExtractor:
             safe_stat(np.std, state.stop_go_patterns)
         ])
         
-        # Colony-level features
-        features.extend([
-            safe_stat(float, state.cluster_config['n_clusters']),
-            safe_stat(np.mean, state.cluster_config['cluster_sizes']),
-            safe_stat(float, state.cluster_config['mean_density']),
-            safe_stat(float, state.activity_level),
-            safe_stat(float, state.spatial_distribution['area']),
-            safe_stat(float, state.spatial_distribution['density'])
-        ])
-        
-        # Neighbor distance features
+        # Social features (individual-level)
         features.extend([
             safe_stat(np.mean, state.neighbor_distances),
             safe_stat(np.std, state.neighbor_distances),
             safe_stat(np.min, state.neighbor_distances),
-            safe_stat(np.max, state.neighbor_distances)
+            safe_stat(np.max, state.neighbor_distances),
+            safe_stat(np.mean, state.local_density),
+            safe_stat(np.std, state.local_density)
         ])
         
         # Temporal features
         features.extend([
             safe_stat(np.mean, state.state_changes),
             safe_stat(float, state.transition_rates['activity_change_rate']),
-            safe_stat(float, state.transition_rates['cluster_change_rate']),
-            safe_stat(float, state.time_features['activity_trend']),
-            safe_stat(float, state.time_features.get('time_since_last_cluster', 0))
+            safe_stat(float, state.time_features['activity_trend'])
         ])
         
         return np.array(features)
@@ -860,7 +871,7 @@ class BehaviouralStateExtractor:
             'mean_neighbor_dist', 'std_neighbor_dist',
             'min_neighbor_dist', 'max_neighbor_dist',
             'mean_state_change', 'activity_change_rate',
-            'cluster_change_rate', 'activity_trend', 'clustering_trend'
+            'social_change_rate', 'activity_trend', 'clustering_trend'
         ]
     
         #---------------------------------------------------------
@@ -1726,7 +1737,6 @@ def generate_pc_interpretation(component_loadings: List[Tuple[str, float]]) -> s
     return " and ".join(interpretation_parts) if interpretation_parts else "mixed effects"
 
 def integrate_state_space_analysis(processed_data: Dict,
-                                clustering_stats: Dict,
                                 fps: float = 60.0,
                                 scale: int = 2) -> Dict[str, Any]:
     """
@@ -1734,7 +1744,6 @@ def integrate_state_space_analysis(processed_data: Dict,
     
     Args:
         processed_data: Dictionary of processed ant data
-        clustering_stats: Dictionary of clustering statistics
         fps: Frame rate of the original video
         scale: Temporal downsampling factor
     
@@ -1755,8 +1764,8 @@ def integrate_state_space_analysis(processed_data: Dict,
     ant_ids = list(processed_data.keys())
     n_ants = len(ant_ids)
     
-    # Determine number of timesteps from clustering stats
-    n_timesteps = len(clustering_stats['positions'])
+    # Determine number of timesteps from trajectory features of the ants
+    n_timesteps = len(processed_data[ant_ids[0]]['trajectory_features'].velocities)
     
     print("Pre-processing position and velocity data...")
     # Pre-allocate arrays for positions and velocities
@@ -1766,16 +1775,20 @@ def integrate_state_space_analysis(processed_data: Dict,
     # Fill position and velocity histories with progress bar
     for t in tqdm(range(n_timesteps), desc="Building position/velocity history"):
         for i, ant_id in enumerate(ant_ids):
-            # Get position data
-            if t < len(clustering_stats['positions']):
-                positions = np.array(clustering_stats['positions'][t])
-                if i < len(positions):
-                    positions_history[t, i] = positions[i]
+            # Get position data from trajectory features
+            traj = processed_data[ant_id]['trajectory_features']
+            if hasattr(traj, 'positions'):
+                positions_history[t, i] = traj.positions[t]
+            else:
+                # Reconstruct positions from velocities by integrating
+                if t == 0:
+                    positions_history[t, i] = np.array([0., 0.])  # Starting position
+                else:
+                    positions_history[t, i] = (positions_history[t-1, i] + 
+                                             traj.velocities[t] * (1/effective_fps))
             
-            # Calculate velocities if possible
-            if t > 0:
-                velocities_history[t, i] = (positions_history[t, i] - 
-                                          positions_history[t-1, i]) / (1/effective_fps)
+            # Get velocities directly from trajectory features
+            velocities_history[t, i] = traj.velocities[t]
     
     # Process each timestep
     window_size = int(effective_fps)  # 1 second window
@@ -1787,20 +1800,11 @@ def integrate_state_space_analysis(processed_data: Dict,
         position_window = positions_history[t-window_size:t]
         velocity_window = velocities_history[t-window_size:t]
         
-        # Get clustering info for this timestep
-        cluster_info = {
-            'n_clusters': clustering_stats['n_clusters'][t],
-            'cluster_sizes': clustering_stats['cluster_sizes'][t],
-            'mean_cluster_density': clustering_stats['mean_cluster_density'][t]
-        }
-        # print(f"Frame {t} cluster info:", cluster_info)
-        
         # Extract state
         state = state_extractor.extract_state(
             current_positions,
             position_window,
             velocity_window,
-            cluster_info,
             prev_states=states[-window_size:] if len(states) >= window_size else None
         )
         
@@ -2103,15 +2107,10 @@ def main():
     print("\nProcessing ant trajectories...")
     processed_data = process_ant_data(data)
     
-    # Analyse colony clustering
-    print("\nAnalysing colony clustering...")
-    clustering_stats = analyse_colony_clustering(data)
-    
     # Perform state space analysis
     print("\nPerforming state space analysis...")
     analysis_results = integrate_state_space_analysis(
         processed_data,
-        clustering_stats,
         fps=args.fps,
         scale=args.scale
     )
