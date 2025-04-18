@@ -7,6 +7,9 @@ AntArenaEnv: A single-agent ant environment with a circular arena using pybox2d 
 To expand to multi-agent RL, refactor to PettingZoo or use Gym multi-agent wrappers.
 """
 
+import lzma
+import os
+import pandas as pd
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
@@ -19,6 +22,64 @@ try:
 except ImportError:
     HAS_MPL = False
 
+if __name__ == "__main__":
+    # Relative path during development
+    DATA_DIRECTORY = "../data/2023_2/"
+else:
+    # Relative path when training
+    DATA_DIRECTORY = "data/2023_2/"
+FILE_PREFIX = "KA050_10cm_5h_20230614"
+FILE_SUFFIX = "smoothed"
+PP_FILE_PREFIX = "KA050_processed"
+TRAJECTORIES_FILE = '_'.join([PP_FILE_PREFIX, *FILE_PREFIX.split('_')[1:], FILE_SUFFIX]) + '.pkl.xz'
+
+# Add imports for data loading and transformation
+def load_data(source_dir, input_file, scale=None, arena_dim=None, debug=False, debug_ants=5, debug_timesteps=10000):
+    """
+    Load data from a compressed pickle file.
+    
+    Args:
+        source_dir: Directory containing the data file
+        input_file: Name of the data file
+        scale: Sampling rate for the data
+        arena_dim: Arena dimensions
+        debug: If True, only load subset of ants
+        debug_ants: Number of ants to load in debug mode
+        debug_timesteps: Number of timesteps to load in debug mode
+    """
+    data = None
+    with lzma.open(os.path.join(source_dir, input_file)) as file:
+        data = pd.read_pickle(file)
+    
+    if debug:
+        # Limit timesteps first
+        data = data.iloc[:debug_timesteps]
+        # Then select first N ants
+        ant_ids = sorted(list(data.columns.levels[0]))[:debug_ants]
+        # Keep only the selected ant columns
+        cols_to_keep = [(ant, coord) for ant in ant_ids for coord in ['x', 'y']]
+        data = data[cols_to_keep]
+    
+    return data.iloc[::int(scale)] if scale else data
+
+
+def translate_data_to_sim_space(data, arena_dim):
+    data_len = len(data)
+    logger.info(msg=f"Ant trail data loaded. Total records: {data_len}")
+    arena_bb = find_bounding_box(data)
+    origin_arena = calculate_circle(*arena_bb)
+
+    translation, scale = circle_transformation(origin_arena, arena_dim)
+
+    logger.info(msg=f"Processing data now. This will take a while...")
+    apply_transform_scale(data, translation, scale)
+    logger.info(msg=f"Finished processing.")
+
+    logger.info(msg=f"Translation: {translation}, scale: {scale}")
+    logger.info(msg=f"Original: ({origin_arena[0][0] + translation[0]}, {origin_arena[0][1] + translation[1]}), scale: {origin_arena[1]*scale}")
+    logger.info(msg=f"Simulated: {arena_dim[0]}, scale: {arena_dim[1]}")
+
+    return data
 
 # --- Simulation scale (mm) and rendering scale (pixels/mm) ---
 ARENA_DIAMETER_MM = 100.0
@@ -39,7 +100,7 @@ class AntArenaEnv(gym.Env):
     """
     metadata = {"render_modes": ["human"], "render_fps": 30}
 
-    def __init__(self, render_mode=None, n_ants=10, arena_radius=ARENA_RADIUS_MM, ant_radius=ANT_RADIUS_MM):
+    def __init__(self, render_mode=None, n_ants=10, arena_radius=ARENA_RADIUS_MM, ant_radius=ANT_RADIUS_MM, data_dir=None, trajectories_file=None):
         super().__init__()
         self.render_mode = render_mode
         self.n_ants = n_ants
@@ -48,8 +109,12 @@ class AntArenaEnv(gym.Env):
         self._setup_spaces()
         self.world = None
         self.agent_body = None
-        self.obstacle_bodies = []
+        self.other_ants = []
         self.viewer = None
+        self.other_ant_trajectories = None  # Will hold transformed trajectories
+        self.data_dir = data_dir or os.path.dirname(os.path.abspath(__file__))
+        self.trajectories_file = trajectories_file
+        self._load_and_prepare_trajectories()
         self.reset()
 
     def _setup_spaces(self):
@@ -65,6 +130,34 @@ class AntArenaEnv(gym.Env):
             high=np.array([self.arena_radius, self.arena_radius, np.pi], dtype=np.float32),
             dtype=np.float32
         )
+
+    def _load_and_prepare_trajectories(self):
+        """
+        Load and transform real ant trajectories for use in the simulation.
+        Only called once at initialization.
+        """
+        # Load the data
+        try:
+            df = load_data(self.data_dir, self.trajectories_file)
+        except Exception as e:
+            print(f"Could not load ant trajectory data: {e}")
+            self.other_ant_trajectories = None
+            return
+        # Inspect the first few rows to understand the coordinate system
+        # print(df.head())  # Uncomment to debug
+        # Apply coordinate transformation
+        # NOTE: You may need to adjust the transform if the data assumes (0,0) is top-left.
+        #       translate_data_to_sim_space should be checked for its assumptions.
+        try:
+            self.other_ant_trajectories = translate_data_to_sim_space(
+                df,
+                arena_radius=self.arena_radius,
+                arena_center=(0, 0),
+                flip_y=True  # Set to True if original data uses top-left origin
+            )
+        except Exception as e:
+            print(f"Could not transform ant trajectories: {e}")
+            self.other_ant_trajectories = None
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -91,7 +184,7 @@ class AntArenaEnv(gym.Env):
             angularDamping=0.5,
         )
         # Create obstacle ants (random positions for now)
-        self.obstacle_bodies = []
+        self.other_ants = []
         rng = np.random.default_rng()
         for _ in range(self.n_ants - 1):
             while True:
@@ -110,13 +203,30 @@ class AntArenaEnv(gym.Env):
                 linearDamping=0.5,
                 angularDamping=0.5,
             )
-            self.obstacle_bodies.append(body)
+            self.other_ants.append(body)
 
     def _get_obs(self):
         # For now, just agent position and heading
         pos = self.agent_body.position
         theta = self.agent_body.angle
         return np.array([pos.x, pos.y, theta], dtype=np.float32)
+
+    def _constrain_to_arena(self, body):
+        pos = body.position
+        dist = np.hypot(pos.x, pos.y)
+        max_dist = self.arena_radius - self.ant_radius
+        if dist > max_dist:
+            # Project back to boundary
+            new_x = pos.x * max_dist / dist
+            new_y = pos.y * max_dist / dist
+            body.position = (new_x, new_y)
+            # Remove outward velocity
+            vel = body.linearVelocity
+            outward = np.array([pos.x, pos.y]) / dist
+            v_out = np.dot([vel.x, vel.y], outward)
+            if v_out > 0:
+                v_tan = np.array([vel.x, vel.y]) - v_out * outward
+                body.linearVelocity = (v_tan[0], v_tan[1])
 
     def step(self, action):
         # Action: [forward_speed, turn_rate] in [-1, 1]
@@ -133,26 +243,9 @@ class AntArenaEnv(gym.Env):
         # Step physics
         self.world.Step(1.0 / 30.0, 6, 2)
         # Wall constraint: prevent any ant from leaving arena
-        def constrain_to_arena(body):
-            pos = body.position
-            dist = np.hypot(pos.x, pos.y)
-            max_dist = self.arena_radius - self.ant_radius
-            if dist > max_dist:
-                # Project back to boundary
-                new_x = pos.x * max_dist / dist
-                new_y = pos.y * max_dist / dist
-                body.position = (new_x, new_y)
-                # Remove outward velocity
-                vel = body.linearVelocity
-                outward = np.array([pos.x, pos.y]) / dist
-                v_out = np.dot([vel.x, vel.y], outward)
-                if v_out > 0:
-                    v_tan = np.array([vel.x, vel.y]) - v_out * outward
-                    body.linearVelocity = (v_tan[0], v_tan[1])
-        # Constrain agent and all obstacle ants
-        constrain_to_arena(self.agent_body)
-        for body in self.obstacle_bodies:
-            constrain_to_arena(body)
+        self._constrain_to_arena(self.agent_body)
+        for body in self.other_ants:
+            self._constrain_to_arena(body)
         obs = self._get_obs()
         reward = 0.0  # Placeholder
         terminated = False
@@ -181,7 +274,7 @@ class AntArenaEnv(gym.Env):
         agent_circle = plt.Circle((pos.x * scale, pos.y * scale), self.ant_radius * scale, color='blue', zorder=2)
         self.ax.add_patch(agent_circle)
         # Draw obstacles
-        for body in self.obstacle_bodies:
+        for body in self.other_ants:
             p = body.position
             c = plt.Circle((p.x * scale, p.y * scale), self.ant_radius * scale, color='gray', zorder=1)
             self.ax.add_patch(c)
@@ -190,8 +283,10 @@ class AntArenaEnv(gym.Env):
         self.ax.set_ylim(-lim, lim)
         self.ax.set_aspect('equal')
         self.ax.axis('off')
+        self.ax.set_position([0, 0, 1, 1])  # Fill the figure area
+        self.viewer.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
         plt.pause(0.001)
-
+ 
     def close(self):
         if self.viewer is not None:
             plt.close(self.viewer)
@@ -203,7 +298,11 @@ def main():
     Run a simple test loop for the AntArenaEnv with matplotlib visualization.
     The agent moves forward with a small random turn.
     """
-    env = AntArenaEnv(render_mode='human')
+    env = AntArenaEnv(
+        render_mode='human',
+        data_dir=DATA_DIRECTORY,
+        trajectories_file=TRAJECTORIES_FILE
+    )
     obs, info = env.reset()
     for step in range(300):
         # Move forward, small random turn
